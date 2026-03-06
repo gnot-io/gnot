@@ -3,7 +3,7 @@
 
 > *"A minimal seed from which an intelligent, self-extending distributed execution mesh grows."*
 
-**Author:** Viet Tran
+**Author:** Viet Tran  
 **Organization:** gnot-io  
 **Repository:** github.com/gnot-io/gnot  
 **Website:** gnot.io  
@@ -2169,7 +2169,7 @@ curl -s -X POST http://localhost:8080/action \
 ---
 
 *Document: GNOT Architecture Specification v1.0*  
-*Author: Viet Tran*
+*Author: Viet Tran*  
 *Organization: gnot-io*  
 *Website: gnot.io*  
 *Repository: github.com/gnot-io/gnot*  
