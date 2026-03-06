@@ -3,7 +3,7 @@
 > **A distributed execution mesh that any LLM can orchestrate natively —  
 > no SDK, no workflow code, no pre-provisioning.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Runtime](https://img.shields.io/badge/runtime-v5.13b-green.svg)](https://github.com/gnot-io/gnot/releases)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18886844.svg)](https://doi.org/10.5281/zenodo.18886844)
@@ -427,14 +427,14 @@ gnot/
 
 | Document | Description |
 |----------|-------------|
-| [`specs/GNOT_SPECS_V1.1.md`](specs/GNOT_SPECS_V1.1.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
+| [`docs/SPECS_V5.13_FULL.md`](docs/SPECS_V5.13_FULL.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
 | [arXiv preprint](https://doi.org/10.5281/zenodo.18886844) | Research paper: *GNOT: Generative Node Orchestration Technology — A Minimal-Seed Architecture for LLM-Native Distributed Execution* |
 
 ---
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).
 
 ---
 
