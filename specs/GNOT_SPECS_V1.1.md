@@ -3,12 +3,12 @@
 
 > *"A distributed execution mesh that any LLM can orchestrate natively — no SDK, no workflow code, no pre-provisioning."*
 
-**Author:** Viet Tran
-**Organization:** gnot-io
-**Repository:** github.com/gnot-io/gnot
-**Website:** gnot.io
-**Version:** 1.1 (updated from v1.0 — reflects production experience and LLM interaction model clarifications)
-**Status:** Production-ready reference implementation
+**Author:** Viet Tran   
+**Organization:** gnot-io   
+**Repository:** github.com/gnot-io/gnot   
+**Website:** gnot.io   
+**Version:** 1.1 (updated from v1.0 — reflects production experience and LLM interaction model clarifications)   
+**Status:** Production-ready reference implementation   
 
 ---
 
