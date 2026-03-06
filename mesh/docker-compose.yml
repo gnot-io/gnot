@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  node-0:
+    build: .
+    container_name: mesh-node-0
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./node-0:/app/node-0
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--config", "node-0/node.yaml"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M

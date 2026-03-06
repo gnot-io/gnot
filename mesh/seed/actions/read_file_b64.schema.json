@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "read_file_b64",
+  "description": "Read any file (binary-safe) and return Base64-encoded content.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "File path to read"
+    }
+  },
+  "required": ["path"],
+  "additionalProperties": false
+}

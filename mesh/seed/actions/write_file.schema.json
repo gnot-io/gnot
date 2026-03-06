@@ -1,0 +1,19 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "write_file",
+    "description": "Write content to a file. Creates parent directories if needed.",
+    "type": "object",
+    "properties": {
+        "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute or relative file path to write"
+        },
+        "content": {
+            "type": "string",
+            "description": "Content to write to the file"
+        }
+    },
+    "required": ["path", "content"],
+    "additionalProperties": false
+}

@@ -1,0 +1,26 @@
+node_id: node-0
+listen: 0.0.0.0:8080
+
+nodes:
+  node-0: http://127.0.0.1:8080
+
+default_resolver: node-0
+
+max_hop: 10
+cache_ttl_seconds: 300
+
+# Authentication
+auth_token: mesh-secret-token-v51
+
+# Job cleanup
+job_ttl_seconds: 3600
+cleanup_interval_seconds: 60
+
+# v5.3 — Gateway: trusted worker nodes
+trusted_nodes:
+  - node-1
+  - node-2
+
+# How long before a silent node is considered unreachable
+heartbeat_timeout_seconds: 30
+ping_timeout_seconds: 3

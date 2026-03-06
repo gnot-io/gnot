@@ -1,0 +1,15 @@
+node_id: node-1
+listen: 0.0.0.0:8081
+
+# v5.3 — Worker: register with gateway on startup
+gateway_node_id: node-0
+gateway_address: http://127.0.0.1:8080
+
+# Optional: if gateway CAN reach this worker directly (push mode),
+# provide self_address. If omitted/null → always pull mode.
+# self_address: http://192.168.1.50:8081
+
+auth_token: mesh-secret-token-v51
+
+heartbeat_interval_seconds: 10
+poll_interval_seconds: 5
