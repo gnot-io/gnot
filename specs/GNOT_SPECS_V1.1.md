@@ -3,12 +3,12 @@
 
 > *"A distributed execution mesh that any LLM can orchestrate natively — no SDK, no workflow code, no pre-provisioning."*
 
-**Author:** Viet Tran   
-**Organization:** gnot-io   
-**Repository:** github.com/gnot-io/gnot   
-**Website:** gnot.io   
-**Version:** 1.1 (updated from v1.0 — reflects production experience and LLM interaction model clarifications)   
-**Status:** Production-ready reference implementation   
+**Author:** Viet Tran  
+**Organization:** gnot-io  
+**Repository:** github.com/gnot-io/gnot  
+**Website:** gnot.io  
+**Version:** 1.1 (updated from v1.0 — reflects production experience and LLM interaction model clarifications)  
+**Status:** Production-ready reference implementation
 
 ---
 
@@ -2281,10 +2281,10 @@ curl -s -X POST http://localhost:8080/action \
 
 ---
 
-*Document: GNOT Architecture Specification v1.1*   
-*Author: Viet Tran*   
-*Organization: gnot-io*   
-*Website: gnot.io*   
-*Repository: github.com/gnot-io/gnot*   
-*Runtime version: v5.13b*   
-*Last updated: 2026-03-06*   
+*Document: GNOT Architecture Specification v1.1*  
+*Author: Viet Tran*     
+*Organization: gnot-io*  
+*Website: gnot.io*  
+*Repository: github.com/gnot-io/gnot*  
+*Runtime version: v5.13b*  
+*Last updated: 2026-03-06*
