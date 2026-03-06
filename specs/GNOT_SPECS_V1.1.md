@@ -2281,10 +2281,10 @@ curl -s -X POST http://localhost:8080/action \
 
 ---
 
-*Document: GNOT Architecture Specification v1.1*
-*Author: Viet Tran*
-*Organization: gnot-io*
-*Website: gnot.io*
-*Repository: github.com/gnot-io/gnot*
-*Runtime version: v5.13b*
-*Last updated: 2026-03-06*
+*Document: GNOT Architecture Specification v1.1*   
+*Author: Viet Tran*   
+*Organization: gnot-io*   
+*Website: gnot.io*   
+*Repository: github.com/gnot-io/gnot*   
+*Runtime version: v5.13b*   
+*Last updated: 2026-03-06*   
