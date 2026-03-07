@@ -368,7 +368,7 @@ For async actions, declare `ASYNC = True` and define `async def run(...)`.
 | `GET`  | `/download/{file_id}` | Download staged file |
 | `POST` | `/bootstrap` | Programmatic node creation with auto-rollback |
 
-Full API reference: [`docs/SPECS_V5.13_FULL.md § 20`](docs/SPECS_V5.13_FULL.md)
+Full API reference: [`docs/specs/GNOT_SPECS_V1.1.md § 20`](docs/specs/GNOT_SPECS_V1.1.md)
 
 ---
 
