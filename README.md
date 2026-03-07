@@ -1,9 +1,9 @@
 # GNOT — Generative Node Orchestration Technology
-
-> **A distributed execution mesh that any LLM can orchestrate natively —  
+x
+> **A distributed execution mesh that any LLM can orchestrate natively —
 > no SDK, no workflow code, no pre-provisioning.**
 
-> **Official repository** — maintained by [gnot-io](https://github.com/gnot-io) · original author: [Tran Quoc Viet](https://github.com/gnot-io)  
+> **Official repository** — maintained by [gnot-io](https://github.com/gnot-io) · original author: [Tran Quoc Viet](https://github.com/gnot-io)
 > Forks and derivatives are welcome under Apache 2.0. Please retain the [NOTICE](NOTICE) file and link back to this repository.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -35,7 +35,7 @@ These three primitives form a **minimal complete basis**: any Linux environment 
 ## How it works
 
 An external LLM (Claude, GPT-4, any tool-calling model) is given:
-1. The mesh capability description from `GET /capabilities`  
+1. The mesh capability description from `GET /capabilities`
 2. One generic tool: `mesh_action(target_node_id, action, params)`
 
 From this, the LLM can execute commands across any node in the mesh, transfer files between private networks, provision new nodes, install software, and compose arbitrarily complex multi-step workflows — all from a single natural-language prompt.
@@ -477,4 +477,3 @@ If you use GNOT in research or build on this architecture, please cite:
 ---
 
 *gnot-io · gnot.io · github.com/gnot-io/gnot*
-

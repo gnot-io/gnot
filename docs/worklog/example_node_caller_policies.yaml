@@ -1,0 +1,19 @@
+# Example node.yaml with v5.11 caller_policies
+# =============================================================
+# node_id: node-0
+# listen: 0.0.0.0:8080
+#
+# auth_token: "sk-node-secret"
+#
+# caller_policies:                       # omit section = level 1 (open)
+#   - token: "sk-sales-abc"
+#     allowed_actions:
+#       - get_order_info
+#       - list_orders
+#   - token: "sk-devops-xyz"
+#     allowed_actions:
+#       - execute_command
+#       - read_file
+#       - write_file
+#   - token: "sk-admin-000"
+#     allowed_actions: "*"               # wildcard = allow all (same as level 1)
