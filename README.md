@@ -427,7 +427,7 @@ gnot/
 
 | Document | Description |
 |----------|-------------|
-| [`docs/SPECS_V5.13_FULL.md`](docs/SPECS_V5.13_FULL.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
+| [`specs/GNOT_SPECS_V1.1`](specs/GNOT_SPECS_V1.1.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
 | [arXiv preprint](https://doi.org/10.5281/zenodo.18886844) | Research paper: *GNOT: Generative Node Orchestration Technology — A Minimal-Seed Architecture for LLM-Native Distributed Execution* |
 
 ---
