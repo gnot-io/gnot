@@ -98,7 +98,3 @@ curl http://localhost:8080/health
 pip install -r requirements.txt
 pytest tests/ -v
 ```
-
-## License
-
-Internal use — VietML.
