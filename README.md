@@ -7,6 +7,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Runtime](https://img.shields.io/badge/runtime-v5.13b-green.svg)](https://github.com/gnot-io/gnot/releases)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18886844.svg)](https://doi.org/10.5281/zenodo.18886844)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![GitHub contributors](https://img.shields.io/github/contributors/gnot-io/gnot.svg)](https://github.com/gnot-io/gnot/graphs/contributors)
 
 ---
 
@@ -102,7 +104,7 @@ Topic → research → script → AI-generated visuals → ffmpeg rendering → 
 ```bash
 git clone https://github.com/gnot-io/gnot.git
 cd gnot
-cd mesh && pip install -r requirements.txt
+pip install -r src/requirements.txt
 ```
 
 ### Start a standalone seed node
@@ -115,7 +117,7 @@ auth_token: your-secret-token
 ```
 
 ```bash
-python mesh/node_runtime.py --config node.yaml
+python src/node_runtime.py --config node.yaml
 ```
 
 Verify:
@@ -217,7 +219,7 @@ poll_interval_seconds: 5
 ```
 
 ```bash
-python mesh/node_runtime.py --config worker.yaml
+python src/node_runtime.py --config worker.yaml
 ```
 
 The worker registers itself with the gateway and begins polling. Within seconds it appears in `GET /capabilities` and becomes reachable through the mesh.
@@ -297,10 +299,10 @@ Multi-hop routing follows a BGP-inspired next-hop model: each node only needs to
 
 ## Writing a custom action
 
-Drop two files into `actions/` on any node:
+Drop two files into `src/seed/actions/` on any node:
 
 ```python
-# actions/get_system_info.py
+# src/seed/actions/get_system_info.py
 
 def run(params: dict, context: dict) -> dict:
     import platform, psutil
@@ -313,7 +315,7 @@ def run(params: dict, context: dict) -> dict:
 ```
 
 ```json
-// actions/get_system_info.schema.json
+// src/seed/actions/get_system_info.schema.json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "get_system_info",
@@ -325,6 +327,8 @@ def run(params: dict, context: dict) -> dict:
 ```
 
 Restart the node. The action appears immediately in `GET /capabilities` and is available to any LLM orchestrating the mesh.
+
+See [`docs/examples/`](docs/examples/) for 18 step-by-step walkthroughs.
 
 For async actions, declare `ASYNC = True` and define `async def run(...)`.
 
@@ -369,8 +373,10 @@ Full API reference: [`docs/SPECS_V5.13_FULL.md § 20`](docs/SPECS_V5.13_FULL.md)
 ```
 gnot/
 ├── docs/
-│   └── SPECS_V5.13_FULL.md          # Full architecture specification v1.1
-├── mesh/
+│   ├── examples/                    # Step-by-step walkthrough examples (01–18)
+│   ├── specs/                       # Full architecture specification
+│   └── whitepapers/                 # Research papers (PDF + LaTeX source)
+├── src/
 │   ├── mesh_ctl.py                  # CLI management tool
 │   ├── node_runtime.py              # Main entry point
 │   ├── node-0/                      # Reference gateway node config
@@ -418,6 +424,7 @@ gnot/
 │       ├── test_router.py
 │       ├── test_v52_features.py … test_v513_features.py
 │       └── (+ 20 additional test modules)
+├── CONTRIBUTING.md
 └── README.md
 ```
 
@@ -427,8 +434,18 @@ gnot/
 
 | Document | Description |
 |----------|-------------|
-| [`specs/GNOT_SPECS_V1.1`](specs/GNOT_SPECS_V1.1.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
+| [`docs/specs/GNOT_SPECS_V1.1`](docs/specs/GNOT_SPECS_V1.1.md) | Full architecture specification v1.1 — node anatomy, routing, protocols, API reference, security model, deployment topology |
 | [arXiv preprint](https://doi.org/10.5281/zenodo.18886844) | Research paper: *GNOT: Generative Node Orchestration Technology — A Minimal-Seed Architecture for LLM-Native Distributed Execution* |
+
+---
+
+## Contributing
+
+Contributions are welcome! Whether you want to fix a bug, add a new action, improve documentation, or share a use case — please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+- **Branch model:** PRs should target `develop`, not `main`
+- **Easiest start:** write a custom action (`.py` + `.schema.json`) under `src/seed/actions/`
+- **Discussions:** [github.com/gnot-io/gnot/discussions](https://github.com/gnot-io/gnot/discussions)
 
 ---
 
