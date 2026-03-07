@@ -1,0 +1,37 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "generate_image",
+    "description": "Generate an image from text using LLM image generation API.",
+    "type": "object",
+    "properties": {
+        "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Text description of the image to generate"
+        },
+        "output_path": {
+            "type": "string",
+            "description": "File path to save the generated image (optional)"
+        },
+        "size": {
+            "type": "string",
+            "enum": ["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"],
+            "default": "1024x1024"
+        },
+        "model": {
+            "type": "string",
+            "default": "dall-e-3"
+        },
+        "quality": {
+            "type": "string",
+            "enum": ["standard", "hd"],
+            "default": "standard"
+        },
+        "optimize_prompt": {
+            "type": "boolean",
+            "default": false,
+            "description": "Use LLM to enhance the prompt before generating"
+        }
+    },
+    "required": ["prompt"]
+}

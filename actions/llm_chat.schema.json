@@ -1,0 +1,47 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "llm_chat",
+    "description": "Send a chat completion request to the configured LLM.",
+    "type": "object",
+    "properties": {
+        "prompt": {
+            "type": "string",
+            "description": "User message (required if messages not provided)"
+        },
+        "system": {
+            "type": "string",
+            "description": "System prompt"
+        },
+        "messages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "role": {"type": "string", "enum": ["system", "user", "assistant"]},
+                    "content": {"type": "string"}
+                },
+                "required": ["role", "content"]
+            },
+            "description": "Full conversation history (overrides prompt)"
+        },
+        "model": {
+            "type": "string",
+            "description": "Override default model"
+        },
+        "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0.7
+        },
+        "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 128000
+        },
+        "json_mode": {
+            "type": "boolean",
+            "default": false
+        }
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "read_file",
+    "description": "Read content from a file on disk.",
+    "type": "object",
+    "properties": {
+        "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "File path to read"
+        }
+    },
+    "required": ["path"],
+    "additionalProperties": false
+}

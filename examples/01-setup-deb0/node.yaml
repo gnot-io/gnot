@@ -1,0 +1,34 @@
+# GNOT node configuration — deb-0 (standalone seed node)
+# Guide 01: https://github.com/gnot-io/gnot/blob/main/examples/01-setup-deb0/README.md
+#
+# Usage:
+#   python3 mesh/node_runtime.py --config node.yaml
+
+# ── Identity ──────────────────────────────────────────────────────────────────
+node_id: deb-0
+listen:  0.0.0.0:8080
+
+# ── Actions ───────────────────────────────────────────────────────────────────
+# Absolute path to the built-in seed actions.
+# Replace /path/to/gnot with your actual clone directory.
+actions_dir: /path/to/gnot/mesh/seed/actions
+
+# ── Authentication ─────────────────────────────────────────────────────────────
+# All callers must send:  Authorization: Bearer <auth_token>
+# Generate a strong token: python3 -c "import secrets; print(secrets.token_hex(24))"
+auth_token: change-this-to-a-strong-secret
+
+# ── Gateway mode ───────────────────────────────────────────────────────────────
+# Worker node IDs allowed to register with this gateway.
+# Leave empty for a standalone node (no workers yet).
+trusted_nodes: []
+
+# ── Timeouts ───────────────────────────────────────────────────────────────────
+# How long before a silent worker is marked unreachable (seconds)
+heartbeat_timeout_seconds: 120
+# Timeout for active ping probes to workers (seconds)
+ping_timeout_seconds: 3.0
+
+# ── Job management ─────────────────────────────────────────────────────────────
+job_ttl_seconds: 3600          # Keep completed jobs for 1 hour
+cleanup_interval_seconds: 60   # Run cleanup every 60 seconds

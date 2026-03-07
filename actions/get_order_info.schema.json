@@ -1,0 +1,29 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "get_order_info",
+    "description": "Retrieve order details from the CRM system. Caller must provide a valid CRM user token.",
+    "x-caller-credentials": {
+        "crm_user_token": {
+            "description": "CRM API key issued to the user by the CRM admin",
+            "required": true,
+            "hint": "Obtain from your CRM admin panel under Settings > API Keys"
+        }
+    },
+    "type": "object",
+    "properties": {
+        "order_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Order ID to retrieve, e.g. ORD-123"
+        },
+        "include_items": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to include line items in the response"
+        }
+    },
+    "required": [
+        "order_id"
+    ],
+    "additionalProperties": false
+}
