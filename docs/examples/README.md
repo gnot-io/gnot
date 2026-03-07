@@ -51,6 +51,15 @@ Each guide builds on the previous one. If you are new to GNOT, start with **Guid
 | [17](./17-telegram-crm/README.md) | **Telegram Bot + CRM Integration** | Telegram messages → `/intent` → private CRM node (no public address needed) |
 | [18](./18-autonomous-dev/README.md) | **Autonomous Development Workflow** | LLM reads code, writes fixes, runs tests, loops until all tests pass |
 
+### Level 6 — Advanced Integration
+
+| Guide | Title | What You Learn |
+|-------|-------|----------------|
+| [19](./19-react-deploy/README.md) | **Build and Deploy a React App** | Build on dev node, transfer bundle via gateway staging, deploy to nginx on prod |
+| [20](./20-database-migration/README.md) | **Database Migration Between Private Networks** | Dump MySQL/PostgreSQL across NAT; automated verify and row count check |
+| [21](./21-notification-actions/README.md) | **Notification Actions** | Telegram, Discord, Twilio SMS, WhatsApp — reusable alert action library |
+| [22](./22-tts-tti-actions/README.md) | **Text-to-Image and Text-to-Speech** | DALL-E 3, Stability AI, fal.ai FLUX, ElevenLabs, OpenAI TTS, gTTS |
+
 ---
 
 ## Environment Used in These Guides
