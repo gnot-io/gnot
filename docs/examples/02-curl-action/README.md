@@ -116,7 +116,7 @@ Response when complete:
 `mesh_ctl.py` (included in the repo) handles the submit-then-poll loop automatically:
 
 ```bash
-cd /path/to/gnot/mesh
+cd /path/to/gnot/gnot/src
 
 python3 mesh_ctl.py run deb-0 execute_command \
   '{"command": "hostname && uptime"}'

@@ -107,7 +107,7 @@ Restart deb-1 to load the new action:
 ```bash
 kill $(cat ~/gnot-nodes/deb-1/node.pid)
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
     > ~/gnot-nodes/deb-1/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1/node.pid
 ```
@@ -221,7 +221,7 @@ After ~8 seconds:
 `mesh_ctl.py` handles the entire submit + poll loop:
 
 ```bash
-cd /path/to/gnot/mesh
+cd /path/to/gnot/gnot/src
 
 python3 mesh_ctl.py run deb-1 slow_report \
   '{"delay_seconds": 10, "include_env": true}'

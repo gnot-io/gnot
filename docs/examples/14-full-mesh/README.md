@@ -187,7 +187,7 @@ curl -s -X POST http://localhost:8080/action \
   | python3 -m json.tool
 
 # Restart deb-1 — it should auto-re-register
-nohup python3 /path/to/gnot/mesh/node_runtime.py \
+nohup python3 /path/to/gnot/gnot/src/node_runtime.py \
     --config ~/gnot-nodes/deb-1/node.yaml \
     > ~/gnot-nodes/deb-1/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1/node.pid

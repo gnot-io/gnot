@@ -55,7 +55,7 @@ cd gnot
 ## Step 2 — Install Python Dependencies
 
 ```bash
-cd mesh
+cd gnot/src
 pip install -r requirements.txt
 ```
 
@@ -63,7 +63,7 @@ pip install -r requirements.txt
 > ```bash
 > python3 -m venv .venv
 > source .venv/bin/activate
-> pip install -r requirements.txt
+> pip install -r gnot/src/requirements.txt
 > ```
 
 Verify the install:
@@ -95,7 +95,7 @@ listen:  0.0.0.0:8080
 # ── Actions ───────────────────────────────────────────────
 # Path to action plugins (relative to this file's directory,
 # or absolute). Leave as default to use the built-in seed actions.
-actions_dir: /path/to/gnot/mesh/seed/actions
+actions_dir: /path/to/gnot/gnot/src/seed/actions
 
 # ── Authentication ─────────────────────────────────────────
 # Anyone calling this node must include this token in the
@@ -115,7 +115,7 @@ cleanup_interval_seconds: 60
 > **Replace `/path/to/gnot`** with the actual path where you cloned the repo.  
 > For example, if you cloned to `/home/alice/gnot`, set:
 > ```yaml
-> actions_dir: /home/alice/gnot/mesh/seed/actions
+> actions_dir: /home/alice/gnot/gnot/src/seed/actions
 > ```
 
 > **Choose a strong `auth_token`.** This is the only secret protecting your node.
@@ -127,7 +127,7 @@ cleanup_interval_seconds: 60
 
 ```bash
 cd /path/to/gnot
-python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml
+python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml
 ```
 
 You should see output similar to:
@@ -141,7 +141,7 @@ INFO     Uvicorn running on http://0.0.0.0:8080
 
 > **Run in the background (optional):**
 > ```bash
-> nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
+> nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
 >     > ~/gnot-nodes/deb-0/node.log 2>&1 &
 > echo $! > ~/gnot-nodes/deb-0/node.pid
 > ```
@@ -245,12 +245,12 @@ listen: 0.0.0.0:8888
 # You may be in a different Python environment
 which python3
 # Re-run pip install in the correct environment
-pip3 install -r mesh/requirements.txt
+pip3 install -r gnot/src/requirements.txt
 ```
 
 **`Permission denied` on the actions directory:**
 ```bash
-chmod +x mesh/seed/actions/*.py
+chmod +x gnot/src/seed/actions/*.py
 ```
 
 **401 Unauthorized on `/capabilities`:**  

@@ -271,7 +271,7 @@ When `POST /bootstrap` is called, these steps execute in order (with rollback on
 2. `write_config` — write `node.yaml`
 3. `install_packages` — `pip install <pip_packages>` (skipped if empty)
 4. `write_actions` — write `.py` and `.schema.json` files
-5. `start_process` — `nohup python mesh/node_runtime.py --config ...`
+5. `start_process` — `nohup python gnot/src/node_runtime.py --config ...`
 6. `verify_health` — `GET /health` with retry (up to 10s)
 
 ---

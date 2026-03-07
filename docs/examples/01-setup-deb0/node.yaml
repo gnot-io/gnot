@@ -2,7 +2,7 @@
 # Guide 01: https://github.com/gnot-io/gnot/blob/main/examples/01-setup-deb0/README.md
 #
 # Usage:
-#   python3 mesh/node_runtime.py --config node.yaml
+#   python3 gnot/src/node_runtime.py --config node.yaml
 
 # ── Identity ──────────────────────────────────────────────────────────────────
 node_id: deb-0
@@ -11,7 +11,7 @@ listen:  0.0.0.0:8080
 # ── Actions ───────────────────────────────────────────────────────────────────
 # Absolute path to the built-in seed actions.
 # Replace /path/to/gnot with your actual clone directory.
-actions_dir: /path/to/gnot/mesh/seed/actions
+actions_dir: /path/to/gnot/gnot/src/seed/actions
 
 # ── Authentication ─────────────────────────────────────────────────────────────
 # All callers must send:  Authorization: Bearer <auth_token>

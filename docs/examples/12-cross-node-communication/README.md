@@ -40,7 +40,7 @@ Or manually create `node.yaml`:
 node_id: alm-0
 listen:  0.0.0.0:8080
 
-actions_dir: /home/YOUR_USER/gnot-repo/mesh/seed/actions
+actions_dir: /home/YOUR_USER/gnot-repo/gnot/src/seed/actions
 
 auth_token: alm-0-secret-token
 gateway_auth_token: change-this-to-a-strong-secret
@@ -65,7 +65,7 @@ This shows the raw mechanics of the staging file system.
 ### Step 1: Create a test file on cen-0
 
 ```bash
-python3 mesh/mesh_ctl.py run cen-0 execute_command \
+python3 gnot/src/mesh_ctl.py run cen-0 execute_command \
   '{"command": "echo \"Data from CentOS node - $(date)\" > /tmp/transfer-test.txt && cat /tmp/transfer-test.txt"}'
 ```
 
@@ -73,7 +73,7 @@ python3 mesh/mesh_ctl.py run cen-0 execute_command \
 
 ```bash
 # cen-0 calls the gateway upload endpoint
-UPLOAD_RESULT=$(python3 mesh/mesh_ctl.py run cen-0 execute_command '{
+UPLOAD_RESULT=$(python3 gnot/src/mesh_ctl.py run cen-0 execute_command '{
   "command": "curl -s -X POST https://deb0.yourdomain.com/upload -H \"Authorization: Bearer change-this-to-a-strong-secret\" -H \"X-Node-ID: cen-0\" -F \"file=@/tmp/transfer-test.txt\""
 }')
 
@@ -97,7 +97,7 @@ echo "File staged with ID: $FILE_ID"
 ### Step 3: Download the file on alm-0
 
 ```bash
-python3 mesh/mesh_ctl.py run alm-0 execute_command "{
+python3 gnot/src/mesh_ctl.py run alm-0 execute_command "{
   \"command\": \"curl -sOJ https://deb0.yourdomain.com/download/$FILE_ID -H 'Authorization: Bearer change-this-to-a-strong-secret' && cat transfer-test.txt\"
 }"
 ```

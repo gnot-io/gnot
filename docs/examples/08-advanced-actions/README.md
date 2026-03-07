@@ -336,7 +336,7 @@ The credential is encrypted (AES-256-GCM) and stored for the session. Subsequent
 # Restart deb-1 to load all new actions
 kill $(cat ~/gnot-nodes/deb-1/node.pid)
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
     > ~/gnot-nodes/deb-1/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1/node.pid
 

@@ -26,19 +26,19 @@ Let's set up a small Python project with a bug for the LLM to fix.
 
 ```bash
 # Create the project on deb-1
-python3 mesh/mesh_ctl.py run deb-1 execute_command \
+python3 gnot/src/mesh_ctl.py run deb-1 execute_command \
   '{"command": "mkdir -p /opt/dev-demo && cat > /opt/dev-demo/calculator.py << '"'"'EOF\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    # BUG: no zero-division check\n    return a / b\n\ndef power(base, exp):\n    # BUG: wrong implementation\n    return base * exp\nEOF"}'
 ```
 
 ```bash
 # Create failing tests
-python3 mesh/mesh_ctl.py run deb-1 execute_command \
+python3 gnot/src/mesh_ctl.py run deb-1 execute_command \
   '{"command": "cat > /opt/dev-demo/test_calculator.py << '"'"'EOF\nimport pytest\nfrom calculator import add, subtract, multiply, divide, power\n\ndef test_add():        assert add(2, 3) == 5\ndef test_subtract():   assert subtract(10, 3) == 7\ndef test_multiply():   assert multiply(4, 5) == 20\ndef test_divide():     assert divide(10, 2) == 5.0\ndef test_divide_by_zero():\n    with pytest.raises(ZeroDivisionError):\n        divide(5, 0)\ndef test_power():      assert power(2, 10) == 1024\nEOF"}'
 ```
 
 ```bash
 # Verify tests fail (expected)
-python3 mesh/mesh_ctl.py run deb-1 execute_command \
+python3 gnot/src/mesh_ctl.py run deb-1 execute_command \
   '{"command": "cd /opt/dev-demo && python3 -m pytest test_calculator.py -v 2>&1"}'
 ```
 
@@ -194,7 +194,7 @@ intent_max_turns: 40
 
 **Version control:** The LLM will overwrite files directly. Before starting, commit your working state:
 ```bash
-python3 mesh/mesh_ctl.py run deb-1 execute_command \
+python3 gnot/src/mesh_ctl.py run deb-1 execute_command \
   '{"command": "cd /opt/dev-demo && git init && git add . && git commit -m \"before-autodev\""}'
 ```
 

@@ -76,7 +76,7 @@ Create `~/gnot/cen-0/node.yaml`:
 node_id: cen-0
 listen:  0.0.0.0:8080
 
-actions_dir: /home/YOUR_USER/gnot-repo/mesh/seed/actions
+actions_dir: /home/YOUR_USER/gnot-repo/gnot/src/seed/actions
 
 auth_token: cen-0-secret-token
 gateway_auth_token: change-this-to-a-strong-secret   # deb-0's token
@@ -97,7 +97,7 @@ cleanup_interval_seconds: 60
 
 ```bash
 # Start
-nohup python3.11 ~/gnot-repo/mesh/node_runtime.py \
+nohup python3.11 ~/gnot-repo/gnot/src/node_runtime.py \
     --config ~/gnot/cen-0/node.yaml \
     > ~/gnot/cen-0/node.log 2>&1 &
 ```

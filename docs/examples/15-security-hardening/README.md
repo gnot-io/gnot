@@ -29,7 +29,7 @@ Replace the shared `auth_token` with per-node tokens using `allowed_tokens`.
 ```yaml
 node_id: deb-0
 listen:  0.0.0.0:8080
-actions_dir: /path/to/gnot/mesh/seed/actions
+actions_dir: /path/to/gnot/gnot/src/seed/actions
 
 # ── Authentication ──────────────────────────────────────
 # Remove single auth_token. Use per-caller token list.
@@ -160,7 +160,7 @@ sudo chown -R gnot-deb0:gnot-deb0 /home/gnot-deb0/gnot-nodes
 # (optional additional restriction via sudoers or AppArmor)
 
 # Run as dedicated user
-sudo -u gnot-deb0 nohup python3 /path/to/gnot/mesh/node_runtime.py \
+sudo -u gnot-deb0 nohup python3 /path/to/gnot/gnot/src/node_runtime.py \
     --config /home/gnot-deb0/gnot-nodes/deb-0/node.yaml \
     > /var/log/gnot-deb0.log 2>&1 &
 ```
@@ -179,7 +179,7 @@ Type=simple
 User=gnot-deb0
 Group=gnot-deb0
 WorkingDirectory=/path/to/gnot
-ExecStart=/usr/bin/python3 mesh/node_runtime.py --config /home/gnot-deb0/gnot-nodes/deb-0/node.yaml
+ExecStart=/usr/bin/python3 gnot/src/node_runtime.py --config /home/gnot-deb0/gnot-nodes/deb-0/node.yaml
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/gnot-deb0.log

@@ -156,7 +156,7 @@ direct actions on remote Linux machines via HTTP.
 To execute something, output a shell command for the user to run. The user will
 run it and paste the result back. Use this pattern:
 
-  python3 /path/to/gnot/mesh/mesh_ctl.py run <node_id> <action> '<params_json>'
+  python3 /path/to/gnot/gnot/src/mesh_ctl.py run <node_id> <action> '<params_json>'
 
 For async actions (execute_command), mesh_ctl.py polls automatically and returns
 the final result.
@@ -187,7 +187,7 @@ export MESH_GATEWAY="https://deb0.yourdomain.com"
 export MESH_TOKEN="change-this-to-a-strong-secret"
 
 # Test
-cd /path/to/gnot/mesh
+cd /path/to/gnot/gnot/src
 python3 mesh_ctl.py health
 ```
 
@@ -288,7 +288,7 @@ DNS hasn't propagated yet. Wait 1–5 minutes, or check with `dig deb0.yourdomai
 **`502 Bad Gateway` from Cloudflare:**  
 deb-0 node is not running. Restart it:
 ```bash
-python3 /path/to/gnot/mesh/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml &
+python3 /path/to/gnot/gnot/src/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml &
 ```
 
 **Tunnel disconnects:**  

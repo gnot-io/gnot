@@ -63,8 +63,8 @@ For this guide, deb-1a runs on the same machine on port 8082. In a real deployme
 ```bash
 mkdir -p ~/gnot-nodes/deb-1a/actions
 # Copy seed actions
-cp /path/to/gnot/mesh/seed/actions/*.py   ~/gnot-nodes/deb-1a/actions/
-cp /path/to/gnot/mesh/seed/actions/*.json ~/gnot-nodes/deb-1a/actions/
+cp /path/to/gnot/gnot/src/seed/actions/*.py   ~/gnot-nodes/deb-1a/actions/
+cp /path/to/gnot/gnot/src/seed/actions/*.json ~/gnot-nodes/deb-1a/actions/
 ```
 
 ### Add a unique `identify.py` action
@@ -143,7 +143,7 @@ Restart deb-1:
 ```bash
 kill $(cat ~/gnot-nodes/deb-1/node.pid)
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
     > ~/gnot-nodes/deb-1/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1/node.pid
 ```
@@ -153,7 +153,7 @@ echo $! > ~/gnot-nodes/deb-1/node.pid
 ## Part 3 — Start deb-1a
 
 ```bash
-nohup python3 /path/to/gnot/mesh/node_runtime.py \
+nohup python3 /path/to/gnot/gnot/src/node_runtime.py \
     --config ~/gnot-nodes/deb-1a/node.yaml \
     > ~/gnot-nodes/deb-1a/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1a/node.pid

@@ -75,4 +75,4 @@ Each guide builds on the previous one. If you are new to GNOT, start with **Guid
 ---
 
 *GNOT — Generative Node Orchestration Technology*  
-*[GitHub](https://github.com/gnot-io/gnot) · [Documentation](../docs/GNOT_SPECS_V1.1.md)*
+*[GitHub](https://github.com/gnot-io/gnot) · [Documentation](../../specs/GNOT_SPECS_V1.1.md)*

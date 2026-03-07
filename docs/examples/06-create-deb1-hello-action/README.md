@@ -159,7 +159,7 @@ Restart deb-0:
 ```bash
 kill $(cat ~/gnot-nodes/deb-0/node.pid)
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
     > ~/gnot-nodes/deb-0/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-0/node.pid
 ```
@@ -171,15 +171,15 @@ echo $! > ~/gnot-nodes/deb-0/node.pid
 deb-1 also needs the seed actions (execute_command, read_file, write_file). Copy them alongside the custom action:
 
 ```bash
-cp /path/to/gnot/mesh/seed/actions/*.py   ~/gnot-nodes/deb-1/actions/
-cp /path/to/gnot/mesh/seed/actions/*.json ~/gnot-nodes/deb-1/actions/
+cp /path/to/gnot/gnot/src/seed/actions/*.py   ~/gnot-nodes/deb-1/actions/
+cp /path/to/gnot/gnot/src/seed/actions/*.json ~/gnot-nodes/deb-1/actions/
 ```
 
 Start deb-1:
 
 ```bash
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-1/node.yaml \
     > ~/gnot-nodes/deb-1/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-1/node.pid
 ```

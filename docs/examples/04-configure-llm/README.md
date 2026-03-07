@@ -41,7 +41,7 @@ node_id: deb-0
 listen:  0.0.0.0:8080
 
 # ── Actions ───────────────────────────────────────────────
-actions_dir: /path/to/gnot/mesh/seed/actions
+actions_dir: /path/to/gnot/gnot/src/seed/actions
 
 # ── Authentication ─────────────────────────────────────────
 auth_token: change-this-to-a-strong-secret
@@ -82,7 +82,7 @@ kill $(cat ~/gnot-nodes/deb-0/node.pid) 2>/dev/null
 
 # Restart
 cd /path/to/gnot
-nohup python3 mesh/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
+nohup python3 gnot/src/node_runtime.py --config ~/gnot-nodes/deb-0/node.yaml \
     > ~/gnot-nodes/deb-0/node.log 2>&1 &
 echo $! > ~/gnot-nodes/deb-0/node.pid
 ```
