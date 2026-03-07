@@ -1,5 +1,5 @@
 # GNOT — Generative Node Orchestration Technology
-x
+
 > **A distributed execution mesh that any LLM can orchestrate natively —
 > no SDK, no workflow code, no pre-provisioning.**
 
