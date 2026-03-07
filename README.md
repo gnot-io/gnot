@@ -102,7 +102,7 @@ Topic → research → script → AI-generated visuals → ffmpeg rendering → 
 ```bash
 git clone https://github.com/gnot-io/gnot.git
 cd gnot
-pip install -r requirements.txt
+cd mesh && pip install -r requirements.txt
 ```
 
 ### Start a standalone seed node
@@ -456,3 +456,4 @@ If you use GNOT in research or build on this architecture, please cite:
 ---
 
 *gnot-io · gnot.io · github.com/gnot-io/gnot*
+

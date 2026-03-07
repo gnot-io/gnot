@@ -7,3 +7,4 @@ cachetools==5.5.1
 jsonschema==4.23.0
 pytest==8.3.4
 pytest-asyncio==0.25.0
+python-multipart==0.0.6
