@@ -3,12 +3,16 @@
 > **A distributed execution mesh that any LLM can orchestrate natively —  
 > no SDK, no workflow code, no pre-provisioning.**
 
+> **Official repository** — maintained by [gnot-io](https://github.com/gnot-io) · original author: [Tran Quoc Viet](https://github.com/gnot-io)  
+> Forks and derivatives are welcome under Apache 2.0. Please retain the [NOTICE](NOTICE) file and link back to this repository.
+
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Runtime](https://img.shields.io/badge/runtime-v5.13b-green.svg)](https://github.com/gnot-io/gnot/releases)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18886844.svg)](https://doi.org/10.5281/zenodo.18886844)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub contributors](https://img.shields.io/github/contributors/gnot-io/gnot.svg)](https://github.com/gnot-io/gnot/graphs/contributors)
+[![Official](https://img.shields.io/badge/official-gnot--io-orange.svg)](https://github.com/gnot-io/gnot)
 
 ---
 
@@ -443,7 +447,7 @@ gnot/
 
 Contributions are welcome! Whether you want to fix a bug, add a new action, improve documentation, or share a use case — please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
-- **Branch model:** PRs should target `develop`, not `main`
+- **Branch model:** PRs should target `dev`, not `main`
 - **Easiest start:** write a custom action (`.py` + `.schema.json`) under `src/seed/actions/`
 - **Discussions:** [github.com/gnot-io/gnot/discussions](https://github.com/gnot-io/gnot/discussions)
 

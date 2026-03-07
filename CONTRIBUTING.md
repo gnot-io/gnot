@@ -18,11 +18,11 @@ Thank you for your interest in contributing to GNOT! This document explains how 
 
 ```
 main        — stable releases only
-develop     — integration branch (PRs go here)
+dev     — integration branch (PRs go here)
 feature/*   — your feature or fix branch
 ```
 
-**All PRs must target `develop`, not `main`.**
+**All PRs must target `dev`, not `main`.**
 
 ---
 
@@ -36,14 +36,14 @@ cd gnot
 # 2. Install dependencies
 pip install -r src/requirements.txt
 
-# 3. Create your feature branch from develop
-git checkout develop
+# 3. Create your feature branch from dev
+git checkout dev
 git checkout -b feature/my-feature
 
 # 4. Make your changes, then run tests
 cd src && python -m pytest tests/ -v
 
-# 5. Push and open a PR targeting develop
+# 5. Push and open a PR targeting dev
 git push origin feature/my-feature
 ```
 
