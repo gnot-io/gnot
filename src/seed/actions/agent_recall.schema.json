@@ -1,0 +1,33 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "agent_recall",
+    "description": "Retrieve persistent memory entries. Use to look up facts the agent has previously remembered.",
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Substring search across key and value (case-insensitive)"
+        },
+        "scope": {
+            "type": "string",
+            "description": "Filter by scope: 'global' or 'session:{id}'"
+        },
+        "session_id": {
+            "type": "string",
+            "description": "If provided, returns global + session-scoped entries for this session"
+        },
+        "entry_type": {
+            "type": "string",
+            "enum": ["fact", "narrative"],
+            "description": "Filter by entry type"
+        },
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50,
+            "description": "Maximum number of entries to return"
+        }
+    },
+    "additionalProperties": false
+}

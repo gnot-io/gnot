@@ -1,0 +1,21 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "agent_forget",
+    "description": "Remove persistent memory entries. At least one of key, scope, or session_id must be provided.",
+    "type": "object",
+    "properties": {
+        "key": {
+            "type": "string",
+            "description": "Remove the entry with exactly this key"
+        },
+        "scope": {
+            "type": "string",
+            "description": "Remove all entries with this scope (e.g. 'global', 'session:abc')"
+        },
+        "session_id": {
+            "type": "string",
+            "description": "Remove all entries belonging to this session"
+        }
+    },
+    "additionalProperties": false
+}

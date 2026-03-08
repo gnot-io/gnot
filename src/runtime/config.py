@@ -79,6 +79,17 @@ DEFAULT_POLL_BACKOFF_MULTIPLIER: float = 1.5
 # Set to "whitelist" in node.yaml for stricter environments.
 DEFAULT_REGISTRATION_POLICY: str = "open"  # open | whitelist | invite_only
 
+# v6.0 Phase 3 defaults — Session backend
+DEFAULT_SESSION_BACKEND: str = "memory"    # "memory" | "persistent"
+DEFAULT_SESSION_STORAGE_DIR: str = "./sessions"
+DEFAULT_MAX_MESSAGES_PER_SESSION: int = 0  # 0 = unlimited
+
+# v6.0 Phase 3 defaults — Agent memory
+DEFAULT_MEMORY_ENABLED: bool = False
+DEFAULT_MEMORY_STORAGE_DIR: str = "./memory"
+DEFAULT_MEMORY_INJECT_INTO_PROMPT: bool = True
+DEFAULT_MEMORY_MAX_ENTRIES: int = 1000
+
 
 # ---------------------------------------------------------------------------
 # v5.11 — Caller authorization policy
@@ -131,6 +142,32 @@ def check_caller_policy(
 class SchedulerConfig:
     """Configuration for the Scheduler autonomy engine."""
     enabled: bool = DEFAULT_SCHEDULER_ENABLED
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 3 — Session backend config
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SessionConfig:
+    """Session storage configuration."""
+    backend: str = DEFAULT_SESSION_BACKEND        # "memory" | "persistent"
+    storage_dir: str = DEFAULT_SESSION_STORAGE_DIR
+    default_ttl_seconds: int = 0                  # 0 = infinite
+    max_messages_per_session: int = DEFAULT_MAX_MESSAGES_PER_SESSION
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 3 — Agent memory config
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """Agent memory storage configuration."""
+    enabled: bool = DEFAULT_MEMORY_ENABLED
+    storage_dir: str = DEFAULT_MEMORY_STORAGE_DIR
+    inject_into_prompt: bool = DEFAULT_MEMORY_INJECT_INTO_PROMPT
+    max_entries: int = DEFAULT_MEMORY_MAX_ENTRIES
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +266,15 @@ class NodeConfig:
 
     # v6.0 Phase 2 — Registration policy
     registration_policy: str = DEFAULT_REGISTRATION_POLICY  # open | whitelist | invite_only
+
+    # v6.0 Phase 3 — Session backend
+    session: SessionConfig = field(default_factory=SessionConfig)
+
+    # v6.0 Phase 3 — Agent memory
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+
+    # v6.0 Phase 3 — MCP servers (list of {id, transport, command?, url?, env?})
+    mcp_servers: tuple = field(default_factory=tuple)
 
     # Derived helpers -------------------------------------------------------
 
@@ -362,7 +408,8 @@ def load_config(config_path: str | Path) -> NodeConfig:
         **{f.name: getattr(config, f.name) for f in config.__dataclass_fields__.values()
            if f.name not in ("event_bus", "scheduler", "schedule", "additional_gateways",
                              "registration_policy", "poll_interval_max_seconds",
-                             "poll_backoff_multiplier")},
+                             "poll_backoff_multiplier",
+                             "session", "memory", "mcp_servers")},
         event_bus=_eb_config,
         scheduler=_sched_config,
         schedule=_static_schedule,
@@ -370,6 +417,10 @@ def load_config(config_path: str | Path) -> NodeConfig:
         registration_policy=_registration_policy,
         poll_interval_max_seconds=int(raw.get("poll_interval_max_seconds", DEFAULT_POLL_INTERVAL_MAX_SECONDS)),
         poll_backoff_multiplier=float(raw.get("poll_backoff_multiplier", DEFAULT_POLL_BACKOFF_MULTIPLIER)),
+        # v6.0 Phase 3
+        session=_parse_session_config(raw),
+        memory=_parse_memory_config(raw),
+        mcp_servers=tuple(raw.get("mcp_servers", []) or []),
     )
 
     logger.info(
@@ -383,3 +434,33 @@ def load_config(config_path: str | Path) -> NodeConfig:
         "enabled" if config.llm_enabled else "disabled",
     )
     return config
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 3 — Config section parsers
+# ---------------------------------------------------------------------------
+
+def _parse_session_config(raw: dict) -> "SessionConfig":
+    """Parse the 'session:' section from node.yaml."""
+    s = raw.get("session", {}) or {}
+    # Also support legacy flat field: session_ttl_seconds → default_ttl_seconds
+    legacy_ttl = raw.get("session_ttl_seconds", 0)
+    return SessionConfig(
+        backend=s.get("backend", DEFAULT_SESSION_BACKEND),
+        storage_dir=s.get("storage_dir", DEFAULT_SESSION_STORAGE_DIR),
+        default_ttl_seconds=int(s.get("default_ttl_seconds", legacy_ttl)),
+        max_messages_per_session=int(
+            s.get("max_messages_per_session", DEFAULT_MAX_MESSAGES_PER_SESSION)
+        ),
+    )
+
+
+def _parse_memory_config(raw: dict) -> "MemoryConfig":
+    """Parse the 'memory:' section from node.yaml."""
+    m = raw.get("memory", {}) or {}
+    return MemoryConfig(
+        enabled=m.get("enabled", DEFAULT_MEMORY_ENABLED),
+        storage_dir=m.get("storage_dir", DEFAULT_MEMORY_STORAGE_DIR),
+        inject_into_prompt=m.get("inject_into_prompt", DEFAULT_MEMORY_INJECT_INTO_PROMPT),
+        max_entries=int(m.get("max_entries", DEFAULT_MEMORY_MAX_ENTRIES)),
+    )

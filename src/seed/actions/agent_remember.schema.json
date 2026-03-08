@@ -1,0 +1,34 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "agent_remember",
+    "description": "Store or update a persistent memory entry (fact or narrative) across sessions.",
+    "type": "object",
+    "properties": {
+        "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Logical name for the memory (e.g. 'preferred_language', 'project_goal')"
+        },
+        "value": {
+            "type": "string",
+            "description": "The content to remember"
+        },
+        "entry_type": {
+            "type": "string",
+            "enum": ["fact", "narrative"],
+            "default": "fact",
+            "description": "'fact' for key-value structured data, 'narrative' for free-form notes"
+        },
+        "scope": {
+            "type": "string",
+            "default": "global",
+            "description": "'global' for all sessions, 'session:{id}' for session-scoped"
+        },
+        "session_id": {
+            "type": "string",
+            "description": "Session ID for session-scoped memories"
+        }
+    },
+    "required": ["key", "value"],
+    "additionalProperties": false
+}

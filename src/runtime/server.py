@@ -93,6 +93,9 @@ from runtime.intent_handler import IntentHandler
 from runtime.event_bus import EventBus
 from runtime.channel_registry import ChannelRegistry
 from runtime.scheduler import Scheduler
+from runtime.persistent_session_store import PersistentSessionStore
+from runtime.agent_memory_store import AgentMemoryStore
+from runtime.mcp_registry import MCPRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -133,11 +136,53 @@ def create_app(
     )
     resolver = NodeResolver(config)
     schema_validator = ActionSchemaValidator(schema_registry or {})
+
+    # -- v5.9 / v6.0 Phase 3: session store (memory or persistent) ---------
+    if config.session.backend == "persistent":
+        conversation_store = PersistentSessionStore(
+            storage_dir=config.session.storage_dir,
+            default_ttl_seconds=config.session.default_ttl_seconds,
+            max_messages_per_session=config.session.max_messages_per_session,
+        )
+        logger.info(
+            "PersistentSessionStore enabled — dir=%s ttl=%d",
+            config.session.storage_dir, config.session.default_ttl_seconds,
+        )
+    else:
+        conversation_store = ConversationStore(
+            ttl_seconds=config.session.default_ttl_seconds or config.session_ttl_seconds,
+        )
+
+    # -- v6.0 Phase 3: agent memory store -----------------------------------
+    memory_store: AgentMemoryStore | None = None
+    if config.memory.enabled:
+        memory_store = AgentMemoryStore(
+            storage_dir=config.memory.storage_dir,
+            node_id=config.node_id,
+            max_entries=config.memory.max_entries,
+            inject_into_prompt=config.memory.inject_into_prompt,
+        )
+        logger.info(
+            "AgentMemoryStore enabled — dir=%s max_entries=%d",
+            config.memory.storage_dir, config.memory.max_entries,
+        )
+
+    # -- v6.0 Phase 3: MCP registry (connect at lifespan startup) -----------
+    mcp_registry: MCPRegistry | None = None
+    if config.mcp_servers:
+        mcp_registry = MCPRegistry(list(config.mcp_servers))
+        logger.info(
+            "MCPRegistry created — %d server(s) configured",
+            len(config.mcp_servers),
+        )
+
+    # -- ActionExecutor (after memory_store is ready) -----------------------
     executor = ActionExecutor(
         registry, job_manager, config.node_id,
         schema_validator=schema_validator,
         llm_client=llm_client,
         caller_policies=list(config.caller_policies),
+        memory_store=memory_store,   # v6.0 Phase 3
     )
 
     # -- v5.3: gateway state ------------------------------------------------
@@ -167,12 +212,6 @@ def create_app(
         max_size_bytes=config.upload_max_size_bytes,
         ttl_seconds=config.upload_ttl_seconds,
     )
-
-    # -- v5.9: conversation store + intent handler --------------------------
-    conversation_store = ConversationStore(
-        ttl_seconds=config.session_ttl_seconds,
-    )
-    # v5.13 — encrypted session credential store
     # Use dedicated credential_encryption_key if set (v5.13); otherwise
     # derive from auth_token for backward-compat with v5.12 deployments.
     _cred_enc_key = config.credential_encryption_key or config.auth_token
@@ -192,6 +231,8 @@ def create_app(
             conversation_store=conversation_store,
             schema_validator=schema_validator,  # v5.11
             credential_store=credential_store,  # v5.12
+            memory_store=memory_store,          # v6.0 Phase 3
+            mcp_registry=mcp_registry,          # v6.0 Phase 3
         )
         logger.info("IntentHandler ready — POST /intent enabled")
     else:
@@ -238,6 +279,19 @@ def create_app(
         # v5.13 — load persisted credentials + start background flusher
         _cred_sessions = await credential_store.load()
         credential_store.start_flush_task()
+        # v6.0 Phase 3 — load persistent sessions from disk
+        _sess_loaded = 0
+        if isinstance(conversation_store, PersistentSessionStore):
+            _sess_loaded = await conversation_store.startup_load()
+        # v6.0 Phase 3 — load agent memory from disk
+        _mem_loaded = 0
+        if memory_store is not None:
+            _mem_loaded = await memory_store.startup_load()
+        # v6.0 Phase 3 — connect MCP servers + discover tools
+        _mcp_tools = 0
+        if mcp_registry is not None:
+            await mcp_registry.startup()
+            _mcp_tools = len(mcp_registry.list_tools())
         # v6.0 — start EventBus delivery worker + load persisted events
         _eb_loaded = 0
         if event_bus is not None:
@@ -260,11 +314,15 @@ def create_app(
             "swept %d orphaned upload(s), %d stale session(s), "
             "loaded %d credential session(s), llm=%s, "
             "event_bus=%s, persisted_events=%d, "
-            "scheduler=%s, static_schedules=%d",
+            "scheduler=%s, static_schedules=%d, "
+            "sessions=%s(loaded=%d), memory=%s(entries=%d), mcp=%s(tools=%d)",
             config.trusted_nodes, swept_uploads, swept_sessions,
             _cred_sessions, "enabled" if config.llm_enabled else "disabled",
             "enabled" if event_bus is not None else "disabled", _eb_loaded,
             "enabled" if scheduler is not None else "disabled", _sched_count,
+            config.session.backend, _sess_loaded,
+            "enabled" if memory_store is not None else "disabled", _mem_loaded,
+            "enabled" if mcp_registry is not None else "disabled", _mcp_tools,
         )
         yield
         job_manager.stop_cleanup_loop()
@@ -274,6 +332,9 @@ def create_app(
         # v6.0 — stop EventBus
         if event_bus is not None:
             await event_bus.stop()
+        # v6.0 Phase 3 — disconnect MCP servers
+        if mcp_registry is not None:
+            await mcp_registry.shutdown()
         # v5.13 — final credential flush before exit
         await credential_store.stop_flush_task()
         logger.info("Shutdown complete")
@@ -291,6 +352,9 @@ def create_app(
     app.state.event_bus = event_bus           # v6.0: exposed for testing
     app.state.channel_registry = channel_registry  # v6.0
     app.state.scheduler = scheduler           # v6.0 Phase 2
+    app.state.memory_store = memory_store     # v6.0 Phase 3
+    app.state.mcp_registry = mcp_registry     # v6.0 Phase 3
+    app.state.conversation_store = conversation_store  # v6.0 Phase 3
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -872,6 +936,172 @@ def create_app(
                 ],
                 "total": len(sessions),
             },
+            status_code=200,
+        )
+
+    # =======================================================================
+    # v6.0 Phase 3 — SESSION / MEMORY / MCP ENDPOINTS
+    # =======================================================================
+
+    @app.post("/sessions/{session_id}/clear")
+    async def clear_session_messages_endpoint(session_id: str) -> JSONResponse:
+        """Clear conversation history for a session (keep session + memory).
+
+        Useful for resetting the agent context without losing the session ID
+        or associated memories.
+
+        Returns:
+            200 — messages cleared
+            404 — session not found
+        """
+        if isinstance(conversation_store, PersistentSessionStore):
+            cleared = await conversation_store.clear_messages(session_id)
+        else:
+            # In-memory store: get session, clear messages
+            session = await conversation_store.get(session_id)
+            if session is not None:
+                session.messages.clear()
+                cleared = True
+            else:
+                cleared = False
+
+        if not cleared:
+            return JSONResponse(
+                content={"error": "SESSION_NOT_FOUND", "session_id": session_id},
+                status_code=404,
+            )
+        return JSONResponse(
+            content={"session_id": session_id, "cleared": True},
+            status_code=200,
+        )
+
+    @app.get("/memory")
+    async def list_memory_endpoint(
+        query: str | None = None,
+        scope: str | None = None,
+        entry_type: str | None = None,
+        limit: int = 100,
+    ) -> JSONResponse:
+        """List agent memory entries.
+
+        Query params:
+            query:      Substring search (key + value)
+            scope:      Filter by scope ("global", "session:{id}")
+            entry_type: "fact" | "narrative"
+            limit:      Max results (default 100)
+
+        Returns 503 if memory not enabled.
+        """
+        if memory_store is None:
+            return JSONResponse(
+                content={"error": "MEMORY_NOT_ENABLED"},
+                status_code=503,
+            )
+        entries = await memory_store.recall(
+            query=query, scope=scope, entry_type=entry_type, limit=limit
+        )
+        return JSONResponse(
+            content={
+                "entries": [e.to_dict() for e in entries],
+                "total": len(entries),
+                "memory_count": memory_store.count,
+            },
+            status_code=200,
+        )
+
+    @app.post("/memory")
+    async def write_memory_endpoint(request: Request) -> JSONResponse:
+        """Store or update a memory entry.
+
+        Body: {key, value, entry_type?, scope?, session_id?}
+
+        Returns 503 if memory not enabled.
+        """
+        if memory_store is None:
+            return JSONResponse(
+                content={"error": "MEMORY_NOT_ENABLED"},
+                status_code=503,
+            )
+        body = await request.json()
+        key = body.get("key")
+        value = body.get("value")
+        if not key or value is None:
+            return JSONResponse(
+                content={"error": "MISSING_FIELDS", "detail": "key and value are required"},
+                status_code=400,
+            )
+        entry = await memory_store.remember(
+            key=str(key),
+            value=str(value),
+            entry_type=body.get("entry_type", "fact"),
+            scope=body.get("scope", "global"),
+            session_id=body.get("session_id"),
+            source=body.get("source", "api"),
+        )
+        return JSONResponse(content=entry.to_dict(), status_code=201)
+
+    @app.delete("/memory")
+    async def delete_memory_endpoint(request: Request) -> JSONResponse:
+        """Remove memory entries.
+
+        Body: {key?, scope?, session_id?}
+        At least one field required.
+
+        Returns 503 if memory not enabled.
+        """
+        if memory_store is None:
+            return JSONResponse(
+                content={"error": "MEMORY_NOT_ENABLED"},
+                status_code=503,
+            )
+        body = await request.json()
+        key = body.get("key")
+        scope = body.get("scope")
+        session_id = body.get("session_id")
+        if not any([key, scope, session_id]):
+            return JSONResponse(
+                content={
+                    "error": "MISSING_FIELDS",
+                    "detail": "At least one of key, scope, session_id required",
+                },
+                status_code=400,
+            )
+        removed = await memory_store.forget(key=key, scope=scope, session_id=session_id)
+        return JSONResponse(content={"removed": removed}, status_code=200)
+
+    @app.get("/mcp/servers")
+    async def list_mcp_servers_endpoint() -> JSONResponse:
+        """List all configured MCP servers and their connection status.
+
+        Returns 503 if no MCP servers configured.
+        """
+        if mcp_registry is None:
+            return JSONResponse(
+                content={"error": "MCP_NOT_CONFIGURED"},
+                status_code=503,
+            )
+        return JSONResponse(
+            content={
+                "servers": mcp_registry.list_servers(),
+                "total": len(mcp_registry.list_servers()),
+            },
+            status_code=200,
+        )
+
+    @app.get("/mcp/tools")
+    async def list_mcp_tools_endpoint() -> JSONResponse:
+        """List all tools discovered from connected MCP servers.
+
+        Returns 503 if no MCP servers configured.
+        """
+        if mcp_registry is None:
+            return JSONResponse(
+                content={"error": "MCP_NOT_CONFIGURED"},
+                status_code=503,
+            )
+        tools = mcp_registry.list_tools()
+        return JSONResponse(
+            content={"tools": tools, "total": len(tools)},
             status_code=200,
         )
 

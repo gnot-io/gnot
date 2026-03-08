@@ -133,6 +133,8 @@ class IntentHandler:
         conversation_store: ConversationStore,
         schema_validator: object | None = None,
         credential_store: CredentialStore | None = None,
+        memory_store=None,     # v6.0 Phase 3: AgentMemoryStore | None
+        mcp_registry=None,     # v6.0 Phase 3: MCPRegistry | None
     ) -> None:
         self._config = config
         self._llm = llm_client
@@ -142,6 +144,8 @@ class IntentHandler:
         self._store = conversation_store
         self._schema_validator = schema_validator  # v5.11: for action spec in system prompt
         self._credential_store = credential_store  # v5.12: encrypted session credential store
+        self._memory = memory_store                # v6.0 Phase 3
+        self._mcp = mcp_registry                  # v6.0 Phase 3
 
     # ── public ───────────────────────────────────────────────────────────────
 
@@ -164,8 +168,18 @@ class IntentHandler:
 
         system_prompt = (
             self._config.intent_system_prompt
-            or self._build_system_prompt(node_hint=req.node_hint)
+            or self._build_system_prompt(
+                node_hint=req.node_hint,
+                session_id=session.session_id,
+            )
         )
+
+        # v6.0 Phase 3: build tool list = mesh_action + MCP tools (if available)
+        tools = [MESH_TOOL_SPEC]
+        if self._mcp is not None:
+            mcp_specs = self._mcp.get_tool_specs()
+            if mcp_specs:
+                tools = tools + mcp_specs
 
         actions_taken: list[str] = []
         tokens_used = 0
@@ -183,7 +197,7 @@ class IntentHandler:
                 llm_resp: LLMResponse = await self._llm.chat(
                     messages=messages,
                     system=system_prompt,
-                    tools=[MESH_TOOL_SPEC],
+                    tools=tools,
                     tool_choice="auto",
                     temperature=0.2,   # low temp for deterministic tool use
                 )
@@ -249,7 +263,17 @@ class IntentHandler:
     async def _execute_tool_call(
         self, tc: ToolCall, caller_credentials: dict[str, str] | None = None
     ) -> str:
-        """Execute a mesh_action tool call and return result as a string."""
+        """Execute a tool call and return result as a string.
+
+        Supports:
+          - mesh_action: route to GNOT node action
+          - mcp__{server}__{tool}: route to MCP server tool (v6.0 Phase 3)
+        """
+        # v6.0 Phase 3: route MCP tool calls directly
+        if self._mcp is not None and self._mcp.is_mcp_tool(tc.name):
+            logger.info("[intent] MCP tool call: %s", tc.name)
+            return await self._mcp.call_tool(tc.name, tc.arguments)
+
         args = tc.arguments
 
         # Validate required fields
@@ -325,8 +349,13 @@ class IntentHandler:
 
     # ── system prompt ────────────────────────────────────────────────────────
 
-    def _build_system_prompt(self, node_hint: str | None = None) -> str:
-        """Build rich system prompt from capability tree including action specs (v5.11)."""
+    def _build_system_prompt(
+        self, node_hint: str | None = None, session_id: str | None = None
+    ) -> str:
+        """Build rich system prompt from capability tree including action specs (v5.11).
+
+        v6.0 Phase 3: also injects AgentMemory block if memory store is available.
+        """
         own_actions = list(self._action_registry.keys())
         reachable = self._node_registry.build_capability_tree(own_actions)
 
@@ -382,6 +411,13 @@ class IntentHandler:
         )
         gw = self._config.node_id
 
+        # v6.0 Phase 3: inject memory block if available
+        memory_block = ""
+        if self._memory is not None:
+            memory_block = self._memory.recall_for_prompt(session_id=session_id)
+            if memory_block:
+                memory_block = "\n" + memory_block + "\n"
+
         return (
             "You are an AI orchestrator for an Execution Mesh.\n\n"
             "You autonomously execute tasks using the `mesh_action` tool. Keep working until\n"
@@ -397,6 +433,7 @@ class IntentHandler:
             "- Actions marked ⚠ caller_credential require a key the user must supply.\n"
             "- Check if `caller_credentials` already contains the required key.\n"
             "- If missing, ask the user for it once; do not ask again in the same session.\n\n"
+            f"{memory_block}"
             "## Response format\n"
             "After completing the task, reply with a concise summary:\n"
             "- What was done and on which node(s)\n"

@@ -73,6 +73,7 @@ class ActionExecutor:
         schema_validator: ActionSchemaValidator | None = None,
         llm_client: LLMClient | None = None,
         caller_policies: list[CallerPolicy] | None = None,
+        memory_store=None,  # v6.0 Phase 3: AgentMemoryStore | None
     ) -> None:
         self._registry = registry
         self._job_manager = job_manager
@@ -81,6 +82,7 @@ class ActionExecutor:
         self._schema_validator = schema_validator
         self._llm_client = llm_client
         self._caller_policies: list[CallerPolicy] = caller_policies or []
+        self._memory_store = memory_store  # v6.0 Phase 3
 
     # -- public API ---------------------------------------------------------
 
@@ -254,5 +256,9 @@ class ActionExecutor:
         # Inject LLM client if configured
         if self._llm_client:
             ctx["llm"] = self._llm_client
+
+        # v6.0 Phase 3: inject memory store for agent_remember/recall/forget
+        if self._memory_store is not None:
+            ctx["memory_store"] = self._memory_store
 
         return ctx
