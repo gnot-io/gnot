@@ -74,6 +74,12 @@ from runtime.models import (
     IntentResponse,
     ConversationMessage,
     SessionInfo,
+    Event,
+    Subscription,
+    EmitRequest,
+    EmitResponse,
+    SubscribeRequest,
+    SubscribeResponse,
 )
 from runtime.node_registry import NodeRegistry
 from runtime.resolver import NodeNotFoundError, NodeResolver
@@ -82,6 +88,8 @@ from runtime.upload_manager import FileTooLargeError, UploadManager
 from runtime.conversation_store import ConversationStore
 from runtime.credential_store import CredentialStore
 from runtime.intent_handler import IntentHandler
+from runtime.event_bus import EventBus
+from runtime.channel_registry import ChannelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +194,26 @@ def create_app(
         logger.info("LLM not configured — POST /intent will return 503")
     start_time = time.time()
 
+    # -- v6.0: EventBus + ChannelRegistry -----------------------------------
+    event_bus: EventBus | None = None
+    channel_registry: ChannelRegistry | None = None
+    if config.event_bus.enabled:
+        event_bus = EventBus(
+            max_log_size=config.event_bus.max_log_size,
+            delivery_timeout_seconds=config.event_bus.delivery_timeout_seconds,
+            delivery_retry_count=config.event_bus.delivery_retry_count,
+            delivery_retry_backoff=config.event_bus.delivery_retry_backoff,
+            persistence_path=config.event_bus.persistence_path,
+            gateway_router=gateway_router,
+            node_id=config.node_id,
+            caller_token=config.auth_token,
+        )
+        channel_registry = ChannelRegistry(
+            node_registry=node_registry,
+            gateway_node_id=config.node_id,
+        )
+        logger.info("EventBus enabled — node=%s", config.node_id)
+
     # -- lifespan (replaces deprecated on_event) ----------------------------
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ARG001
@@ -195,22 +223,32 @@ def create_app(
         # v5.13 — load persisted credentials + start background flusher
         _cred_sessions = await credential_store.load()
         credential_store.start_flush_task()
+        # v6.0 — start EventBus delivery worker + load persisted events
+        _eb_loaded = 0
+        if event_bus is not None:
+            _eb_loaded = await event_bus.load_persisted_events()
+            await event_bus.start()
         logger.info(
-            "v5.13 startup — job cleanup active, trusted_nodes=%s, "
+            "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
-            "loaded %d credential session(s), llm=%s",
+            "loaded %d credential session(s), llm=%s, "
+            "event_bus=%s, persisted_events=%d",
             config.trusted_nodes, swept_uploads, swept_sessions,
             _cred_sessions, "enabled" if config.llm_enabled else "disabled",
+            "enabled" if event_bus is not None else "disabled", _eb_loaded,
         )
         yield
         job_manager.stop_cleanup_loop()
+        # v6.0 — stop EventBus
+        if event_bus is not None:
+            await event_bus.stop()
         # v5.13 — final credential flush before exit
         await credential_store.stop_flush_task()
         logger.info("Shutdown complete")
 
     app = FastAPI(
         title=f"Mesh Node — {config.node_id}",
-        version="5.13.0",
+        version="6.0.0",
         lifespan=lifespan,
     )
 
@@ -218,6 +256,8 @@ def create_app(
     worker_agent_ref: dict = {"agent": None}
     app.state.worker_agent_ref = worker_agent_ref
     app.state.node_registry = node_registry  # v5.12: exposed for WorkerAgent liveness check
+    app.state.event_bus = event_bus           # v6.0: exposed for testing
+    app.state.channel_registry = channel_registry  # v6.0
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -326,7 +366,25 @@ def create_app(
             jobs_active=active,
             queue_depths=queue_depths,
         )
-        return JSONResponse(content=resp.model_dump(), status_code=200)
+        data = resp.model_dump()
+        # v6.0: include EventBus info
+        if event_bus is not None:
+            subs = await event_bus.get_subscriptions()
+            events = await event_bus.get_events(limit=1)  # just to get count cheaply
+            all_events = await event_bus.get_events(limit=config.event_bus.max_log_size)
+            data["event_bus"] = {
+                "enabled": True,
+                "subscriptions": len(subs),
+                "events_in_log": len(all_events),
+            }
+            if channel_registry is not None:
+                data["channel"] = {
+                    "channel_id": channel_registry.get_channel_id(),
+                    "members": channel_registry.member_count(),
+                }
+        else:
+            data["event_bus"] = {"enabled": False}
+        return JSONResponse(content=data, status_code=200)
 
     @app.get("/ping")
     async def ping_endpoint() -> JSONResponse:
@@ -849,5 +907,86 @@ def create_app(
             media_type="application/gzip",
             headers={"Content-Disposition": "attachment; filename=mesh-runtime.tar.gz"},
         )
+
+    # -----------------------------------------------------------------------
+    # v6.0 — EventBus endpoints
+    # -----------------------------------------------------------------------
+
+    @app.post("/emit")
+    async def emit_endpoint(req: EmitRequest) -> JSONResponse:
+        """Publish an event onto the EventBus."""
+        if event_bus is None:
+            return JSONResponse({"error": "EventBus not enabled"}, status_code=503)
+        event = Event(
+            event_type=req.event_type,
+            source_node=req.source_node or config.node_id,
+            payload=req.payload,
+            correlation_id=req.correlation_id,
+            reply_to=req.reply_to,
+        )
+        matched = await event_bus.emit(event)
+        return JSONResponse(EmitResponse(
+            event_id=event.event_id,
+            matched_subscriptions=matched,
+        ).model_dump())
+
+    @app.post("/subscribe")
+    async def subscribe_endpoint(req: SubscribeRequest) -> JSONResponse:
+        """Register a subscription on the EventBus."""
+        if event_bus is None:
+            return JSONResponse({"error": "EventBus not enabled"}, status_code=503)
+        sub = Subscription(
+            subscriber_node=req.subscriber_node,
+            callback_action=req.callback_action,
+            callback_params_template=req.callback_params_template,
+            event_type_pattern=req.event_type_pattern,
+            source_node=req.source_node,
+            payload_filter=req.payload_filter,
+            debounce_seconds=req.debounce_seconds,
+            max_deliveries=req.max_deliveries,
+            description=req.description,
+        )
+        sub_id = await event_bus.subscribe(sub)
+        return JSONResponse(SubscribeResponse(
+            sub_id=sub_id,
+            event_type_pattern=sub.event_type_pattern,
+            subscriber_node=sub.subscriber_node,
+        ).model_dump(), status_code=201)
+
+    @app.delete("/subscriptions/{sub_id}")
+    async def unsubscribe_endpoint(sub_id: str) -> JSONResponse:
+        """Cancel a subscription."""
+        if event_bus is None:
+            return JSONResponse({"error": "EventBus not enabled"}, status_code=503)
+        removed = await event_bus.unsubscribe(sub_id)
+        if not removed:
+            return JSONResponse({"error": f"Subscription not found: {sub_id}"}, status_code=404)
+        return JSONResponse({"sub_id": sub_id, "removed": True})
+
+    @app.get("/subscriptions")
+    async def list_subscriptions_endpoint() -> JSONResponse:
+        """List all active subscriptions."""
+        if event_bus is None:
+            return JSONResponse({"error": "EventBus not enabled"}, status_code=503)
+        subs = await event_bus.get_subscriptions()
+        return JSONResponse({"subscriptions": [s.model_dump() for s in subs], "total": len(subs)})
+
+    @app.get("/events")
+    async def list_events_endpoint(
+        event_type: str | None = Query(default=None),
+        source_node: str | None = Query(default=None),
+        since: float | None = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=10000),
+    ) -> JSONResponse:
+        """Replay the event log with optional filters."""
+        if event_bus is None:
+            return JSONResponse({"error": "EventBus not enabled"}, status_code=503)
+        events = await event_bus.get_events(
+            event_type=event_type,
+            source_node=source_node,
+            since=since,
+            limit=limit,
+        )
+        return JSONResponse({"events": [e.model_dump() for e in events], "total": len(events)})
 
     return app

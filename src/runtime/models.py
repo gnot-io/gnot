@@ -12,6 +12,7 @@ v5.6 changes:
 
 from __future__ import annotations
 
+import time
 import uuid
 from enum import Enum
 from typing import Any
@@ -327,3 +328,72 @@ class CapabilityTreeResponse(BaseModel):
     node_id: str
     actions: list[str]
     reachable: dict[str, CapabilityNode]
+
+
+# ---------------------------------------------------------------------------
+# v6.0 — EventBus models
+# ---------------------------------------------------------------------------
+
+class Event(BaseModel):
+    """A single event in the EventBus log."""
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    event_type: str                                     # dot-notation: "artifact.written"
+    source_node: str                                    # emitter node_id
+    payload: dict[str, Any] = Field(default_factory=dict)
+    timestamp: float = Field(default_factory=time.time)
+    correlation_id: str | None = None
+    reply_to: str | None = None
+
+
+class Subscription(BaseModel):
+    """A registered subscription on the EventBus."""
+    sub_id: str = Field(default_factory=lambda: f"sub-{uuid.uuid4().hex[:12]}")
+    subscriber_node: str
+    callback_action: str                                # action invoked on event match
+    callback_params_template: dict[str, Any] = Field(default_factory=dict)
+    event_type_pattern: str = "*"                       # exact / "test.*" / "*.failed" / "*"
+    source_node: str | None = None                      # None = any source
+    payload_filter: dict[str, Any] | None = None        # None = no filter
+    debounce_seconds: float = 0.0
+    max_deliveries: int | None = None                   # None = unlimited
+    description: str = ""
+    # Internal tracking fields
+    delivery_count: int = 0
+    last_delivered_at: float | None = None
+
+
+# v6.0 — EventBus HTTP request / response models
+
+class EmitRequest(BaseModel):
+    """POST /emit — publish an event."""
+    event_type: str
+    source_node: str | None = None          # defaults to the receiving node's node_id
+    payload: dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str | None = None
+    reply_to: str | None = None
+
+
+class EmitResponse(BaseModel):
+    """Response from POST /emit."""
+    event_id: str
+    matched_subscriptions: int
+
+
+class SubscribeRequest(BaseModel):
+    """POST /subscribe — register a subscription."""
+    subscriber_node: str
+    callback_action: str
+    callback_params_template: dict[str, Any] = Field(default_factory=dict)
+    event_type_pattern: str = "*"
+    source_node: str | None = None
+    payload_filter: dict[str, Any] | None = None
+    debounce_seconds: float = 0.0
+    max_deliveries: int | None = None
+    description: str = ""
+
+
+class SubscribeResponse(BaseModel):
+    """Response from POST /subscribe."""
+    sub_id: str
+    event_type_pattern: str
+    subscriber_node: str

@@ -60,6 +60,13 @@ DEFAULT_CALLER_POLICIES: list = []   # empty = level 1 (open)
 DEFAULT_INTENT_MAX_TURNS: int = 10        # max agent loop iterations per prompt
 DEFAULT_SESSION_TTL_SECONDS: int = 3600   # conversation session expiry
 
+# v6.0 defaults — EventBus
+DEFAULT_EVENT_BUS_ENABLED: bool = True
+DEFAULT_EVENT_MAX_LOG_SIZE: int = 10_000
+DEFAULT_EVENT_DELIVERY_TIMEOUT: float = 10.0
+DEFAULT_EVENT_DELIVERY_RETRY_COUNT: int = 3
+DEFAULT_EVENT_DELIVERY_RETRY_BACKOFF: float = 2.0
+
 
 # ---------------------------------------------------------------------------
 # v5.11 — Caller authorization policy
@@ -102,6 +109,21 @@ def check_caller_policy(
         if policy.token == caller_token:
             return policy.allows(action)
     return False  # token not in any policy
+
+
+# ---------------------------------------------------------------------------
+# v6.0 — EventBus configuration
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EventBusConfig:
+    """Configuration for the EventBus pub/sub system."""
+    enabled: bool = DEFAULT_EVENT_BUS_ENABLED
+    max_log_size: int = DEFAULT_EVENT_MAX_LOG_SIZE
+    delivery_timeout_seconds: float = DEFAULT_EVENT_DELIVERY_TIMEOUT
+    delivery_retry_count: int = DEFAULT_EVENT_DELIVERY_RETRY_COUNT
+    delivery_retry_backoff: float = DEFAULT_EVENT_DELIVERY_RETRY_BACKOFF
+    persistence_path: str | None = None     # if set, persist events to JSONL file
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +190,9 @@ class NodeConfig:
     self_address: str | None = None        # worker's own address (if reachable from gateway)
     heartbeat_interval_seconds: int = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
     poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS
+
+    # v6.0 — EventBus
+    event_bus: EventBusConfig = field(default_factory=EventBusConfig)
 
     # Derived helpers -------------------------------------------------------
 
@@ -274,6 +299,23 @@ def load_config(config_path: str | Path) -> NodeConfig:
         credential_store_path=raw.get("credential_store_path"),
         allowed_tokens=tuple(raw.get("allowed_tokens", [])),
         gateway_auth_token=raw.get("gateway_auth_token"),
+    )
+
+    # Parse v6.0 event_bus section (nested dict, all optional)
+    _eb = raw.get("event_bus", {}) or {}
+    _eb_config = EventBusConfig(
+        enabled=_eb.get("enabled", DEFAULT_EVENT_BUS_ENABLED),
+        max_log_size=int(_eb.get("max_log_size", DEFAULT_EVENT_MAX_LOG_SIZE)),
+        delivery_timeout_seconds=float(_eb.get("delivery_timeout_seconds", DEFAULT_EVENT_DELIVERY_TIMEOUT)),
+        delivery_retry_count=int(_eb.get("delivery_retry_count", DEFAULT_EVENT_DELIVERY_RETRY_COUNT)),
+        delivery_retry_backoff=float(_eb.get("delivery_retry_backoff", DEFAULT_EVENT_DELIVERY_RETRY_BACKOFF)),
+        persistence_path=_eb.get("persistence_path"),
+    )
+    # Re-build config with event_bus populated (frozen dataclass requires reconstruction)
+    config = NodeConfig(
+        **{f.name: getattr(config, f.name) for f in config.__dataclass_fields__.values()
+           if f.name != "event_bus"},
+        event_bus=_eb_config,
     )
 
     logger.info(
