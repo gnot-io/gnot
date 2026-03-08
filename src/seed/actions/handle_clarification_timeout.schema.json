@@ -1,0 +1,26 @@
+{
+  "description": "Handle a timed-out clarification question. If timeout_action is 'use_assumption', resumes the task with the assumption value. If 'fail', cancels the task. Triggered automatically by clarification.timeout EventBus events.",
+  "async_action": false,
+  "params_schema": {
+    "checkpoint_id": {
+      "type": "string",
+      "description": "The checkpoint_id of the timed-out suspended task."
+    },
+    "question_id": {
+      "type": "string",
+      "description": "The pending_question_id from the timed-out checkpoint."
+    },
+    "question": {
+      "type": "string",
+      "description": "The original question that timed out (for logging)."
+    },
+    "assumption": {
+      "type": "string",
+      "description": "The fallback assumption to inject if timeout_action is 'use_assumption'."
+    },
+    "timeout_action": {
+      "type": "string",
+      "description": "Action to take: 'use_assumption' (resume with assumption) or 'fail' (cancel task)."
+    }
+  }
+}

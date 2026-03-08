@@ -124,7 +124,8 @@ class JobManager:
 
         async with self._lock:
             for job_id, job in self._jobs.items():
-                if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED):
+                # v6.0 Phase 4: TIMED_OUT is also a terminal state
+                if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMED_OUT):
                     continue
                 completed_at = job.completed_time or job.start_time
                 if now - completed_at > self._job_ttl_seconds:
@@ -193,7 +194,7 @@ class JobManager:
             if status is not None:
                 job.status = status
                 # Track completion time for TTL cleanup
-                if status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                if status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMED_OUT):
                     job.completed_time = time.time()
             if progress is not None:
                 job.progress = progress

@@ -39,8 +39,11 @@ class JobStatus(str, Enum):
     ACCEPTED = "accepted"
     QUEUED = "queued"       # v5.3: sitting in gateway queue, waiting for worker pull
     RUNNING = "running"
+    SUSPENDED = "suspended"   # v6.0 Phase 4: blocked waiting for clarification
+    RESUMING = "resuming"     # v6.0 Phase 4: answer received, resuming execution
     COMPLETED = "completed"
     FAILED = "failed"
+    TIMED_OUT = "timed_out"   # v6.0 Phase 4: suspension timeout reached
 
 
 class JobMode(str, Enum):
@@ -449,3 +452,61 @@ class SchedulePatchRequest(BaseModel):
     description: str | None = None
     timeout_seconds: int | None = None
     retry_on_failure: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 4 — Task Suspension & Resumption models
+# ---------------------------------------------------------------------------
+
+class TaskCheckpoint(BaseModel):
+    """Persisted state of a suspended intent task.
+
+    Saved when the LLM calls suspend_and_ask mid-loop.
+    Loaded on resume to reconstruct the conversation and continue execution.
+    """
+    checkpoint_id: str = Field(default_factory=lambda: f"cp-{uuid.uuid4().hex[:12]}")
+    task_id: str                            # unique ID for this /intent invocation
+    session_id: str                         # conversation session (message history)
+    node_id: str                            # node that owns this checkpoint
+    original_prompt: str                    # the user prompt that started the task
+    messages: list[dict[str, Any]]          # full LLM message history at suspend point
+    suspend_tool_call_id: str               # tool_call_id of the suspend_and_ask call (for tool result injection)
+    turn_count: int                         # how many turns were completed before suspension
+    suspended_at: float = Field(default_factory=time.time)
+    suspension_reason: str = "clarification_needed"
+    pending_question: str                   # the question posed
+    pending_question_id: str               # correlation_id; used to match the answer
+    asked_node: str = ""                    # agent-to-agent: specific node asked
+    target_role: str = ""                   # agent-to-human: role required to answer
+    timeout_seconds: int = 86400           # 24h default
+    timeout_action: str = "use_assumption" # "use_assumption" | "fail"
+    assumption: str = ""                   # value used if timeout reached
+    status: str = "suspended"             # suspended | answered | resumed | timed_out
+    answer: str | None = None             # filled in when answered
+    answered_at: float | None = None
+
+
+class TaskSuspendedResponse(BaseModel):
+    """Returned by POST /intent when an agent task suspends mid-execution."""
+    session_id: str
+    task_id: str
+    suspended: bool = True
+    question: str
+    question_id: str
+    asked_node: str = ""
+    target_role: str = ""
+    timeout_seconds: int
+    assumption: str
+    message: str = "Task suspended — waiting for clarification"
+
+
+class TaskListResponse(BaseModel):
+    """Response from GET /tasks — lists active + suspended tasks."""
+    tasks: list[dict[str, Any]]
+    total: int
+
+
+class TaskAnswerRequest(BaseModel):
+    """POST /tasks/{task_id}/answer — manually inject an answer."""
+    answer: str
+    answered_by: str = "manual"

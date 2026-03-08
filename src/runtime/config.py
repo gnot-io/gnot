@@ -90,6 +90,16 @@ DEFAULT_MEMORY_STORAGE_DIR: str = "./memory"
 DEFAULT_MEMORY_INJECT_INTO_PROMPT: bool = True
 DEFAULT_MEMORY_MAX_ENTRIES: int = 1000
 
+# v6.0 Phase 4 defaults — Task pool
+DEFAULT_TASK_POOL_ENABLED: bool = True
+DEFAULT_MAX_ACTIVE_TASKS: int = 3
+
+# v6.0 Phase 4 defaults — Checkpoint store
+DEFAULT_CHECKPOINT_STORE_ENABLED: bool = True
+DEFAULT_CHECKPOINT_STORAGE_PATH: str = "/tmp/gnot-checkpoints"
+DEFAULT_CHECKPOINT_DEFAULT_TIMEOUT: int = 86400    # 24h
+DEFAULT_CHECKPOINT_SWEEP_INTERVAL: int = 3600      # 1h
+
 
 # ---------------------------------------------------------------------------
 # v5.11 — Caller authorization policy
@@ -168,6 +178,26 @@ class MemoryConfig:
     storage_dir: str = DEFAULT_MEMORY_STORAGE_DIR
     inject_into_prompt: bool = DEFAULT_MEMORY_INJECT_INTO_PROMPT
     max_entries: int = DEFAULT_MEMORY_MAX_ENTRIES
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 4 — Task Pool & Checkpoint Store config
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TaskPoolConfig:
+    """Configuration for the TaskPool concurrent task manager."""
+    enabled: bool = DEFAULT_TASK_POOL_ENABLED
+    max_active_tasks: int = DEFAULT_MAX_ACTIVE_TASKS
+
+
+@dataclass(frozen=True)
+class CheckpointStoreConfig:
+    """Configuration for the CheckpointStore task state persistence."""
+    enabled: bool = DEFAULT_CHECKPOINT_STORE_ENABLED
+    path: str = DEFAULT_CHECKPOINT_STORAGE_PATH
+    default_timeout_seconds: int = DEFAULT_CHECKPOINT_DEFAULT_TIMEOUT
+    sweep_interval_seconds: int = DEFAULT_CHECKPOINT_SWEEP_INTERVAL
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +305,10 @@ class NodeConfig:
 
     # v6.0 Phase 3 — MCP servers (list of {id, transport, command?, url?, env?})
     mcp_servers: tuple = field(default_factory=tuple)
+
+    # v6.0 Phase 4 — Task Pool & Checkpoint Store
+    task_pool: "TaskPoolConfig" = field(default_factory=lambda: TaskPoolConfig())
+    checkpoint_store: "CheckpointStoreConfig" = field(default_factory=lambda: CheckpointStoreConfig())
 
     # Derived helpers -------------------------------------------------------
 
@@ -409,7 +443,8 @@ def load_config(config_path: str | Path) -> NodeConfig:
            if f.name not in ("event_bus", "scheduler", "schedule", "additional_gateways",
                              "registration_policy", "poll_interval_max_seconds",
                              "poll_backoff_multiplier",
-                             "session", "memory", "mcp_servers")},
+                             "session", "memory", "mcp_servers",
+                             "task_pool", "checkpoint_store")},
         event_bus=_eb_config,
         scheduler=_sched_config,
         schedule=_static_schedule,
@@ -421,6 +456,9 @@ def load_config(config_path: str | Path) -> NodeConfig:
         session=_parse_session_config(raw),
         memory=_parse_memory_config(raw),
         mcp_servers=tuple(raw.get("mcp_servers", []) or []),
+        # v6.0 Phase 4
+        task_pool=_parse_task_pool_config(raw),
+        checkpoint_store=_parse_checkpoint_store_config(raw),
     )
 
     logger.info(
@@ -463,4 +501,32 @@ def _parse_memory_config(raw: dict) -> "MemoryConfig":
         storage_dir=m.get("storage_dir", DEFAULT_MEMORY_STORAGE_DIR),
         inject_into_prompt=m.get("inject_into_prompt", DEFAULT_MEMORY_INJECT_INTO_PROMPT),
         max_entries=int(m.get("max_entries", DEFAULT_MEMORY_MAX_ENTRIES)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 4 — Config section parsers
+# ---------------------------------------------------------------------------
+
+def _parse_task_pool_config(raw: dict) -> "TaskPoolConfig":
+    """Parse the 'task_pool:' section from node.yaml."""
+    t = raw.get("task_pool", {}) or {}
+    return TaskPoolConfig(
+        enabled=t.get("enabled", DEFAULT_TASK_POOL_ENABLED),
+        max_active_tasks=int(t.get("max_active_tasks", DEFAULT_MAX_ACTIVE_TASKS)),
+    )
+
+
+def _parse_checkpoint_store_config(raw: dict) -> "CheckpointStoreConfig":
+    """Parse the 'checkpoint_store:' section from node.yaml."""
+    c = raw.get("checkpoint_store", {}) or {}
+    return CheckpointStoreConfig(
+        enabled=c.get("enabled", DEFAULT_CHECKPOINT_STORE_ENABLED),
+        path=c.get("path", DEFAULT_CHECKPOINT_STORAGE_PATH),
+        default_timeout_seconds=int(
+            c.get("default_timeout_seconds", DEFAULT_CHECKPOINT_DEFAULT_TIMEOUT)
+        ),
+        sweep_interval_seconds=int(
+            c.get("sweep_interval_seconds", DEFAULT_CHECKPOINT_SWEEP_INTERVAL)
+        ),
     )

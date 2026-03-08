@@ -1,0 +1,30 @@
+{
+  "description": "Suspend the current task and ask a clarifying question. The agent pauses execution and waits for an answer before continuing. Use for genuine blockers that cannot be resolved by the agent itself.",
+  "async_action": false,
+  "params_schema": {
+    "question": {
+      "type": "string",
+      "description": "The precise question that needs answering before the task can continue."
+    },
+    "ask_node": {
+      "type": "string",
+      "description": "Node ID of the agent to ask (agent-to-agent clarification). Leave blank for human-targeted questions."
+    },
+    "target_role": {
+      "type": "string",
+      "description": "Human role needed to answer (e.g. 'pm', 'devops'). Used for agent-to-human clarification when ask_node is blank."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "description": "How long to wait for an answer before applying the assumption. Default: 86400 (24h)."
+    },
+    "timeout_action": {
+      "type": "string",
+      "description": "What to do if timeout fires: 'use_assumption' (continue with assumption value) or 'fail' (mark task as failed)."
+    },
+    "assumption": {
+      "type": "string",
+      "description": "The assumption to use if timeout fires and timeout_action is 'use_assumption'."
+    }
+  }
+}

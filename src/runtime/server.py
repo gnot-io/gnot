@@ -82,6 +82,9 @@ from runtime.models import (
     SubscribeResponse,
     ScheduleEntry,
     SchedulePatchRequest,
+    TaskSuspendedResponse,
+    TaskListResponse,
+    TaskAnswerRequest,
 )
 from runtime.node_registry import NodeRegistry
 from runtime.resolver import NodeNotFoundError, NodeResolver
@@ -96,6 +99,8 @@ from runtime.scheduler import Scheduler
 from runtime.persistent_session_store import PersistentSessionStore
 from runtime.agent_memory_store import AgentMemoryStore
 from runtime.mcp_registry import MCPRegistry
+from runtime.checkpoint_store import CheckpointStore
+from runtime.task_pool import TaskPool
 
 logger = logging.getLogger(__name__)
 
@@ -220,23 +225,6 @@ def create_app(
         ttl_seconds=config.session_ttl_seconds,
         store_path=config.credential_store_path,
     )
-    intent_handler: IntentHandler | None = None
-    if config.llm_enabled and llm_client is not None:
-        intent_handler = IntentHandler(
-            config=config,
-            llm_client=llm_client,
-            gateway_router=gateway_router,
-            node_registry=node_registry,
-            action_registry=registry,
-            conversation_store=conversation_store,
-            schema_validator=schema_validator,  # v5.11
-            credential_store=credential_store,  # v5.12
-            memory_store=memory_store,          # v6.0 Phase 3
-            mcp_registry=mcp_registry,          # v6.0 Phase 3
-        )
-        logger.info("IntentHandler ready — POST /intent enabled")
-    else:
-        logger.info("LLM not configured — POST /intent will return 503")
     start_time = time.time()
 
     # -- v6.0: EventBus + ChannelRegistry -----------------------------------
@@ -269,6 +257,56 @@ def create_app(
             caller_token=config.auth_token,
         )
         logger.info("Scheduler enabled — node=%s", config.node_id)
+
+    # -- v6.0 Phase 4: CheckpointStore + TaskPool ---------------------------
+    # Must be created BEFORE intent_handler so task_pool can be injected.
+    checkpoint_store: CheckpointStore | None = None
+    task_pool: TaskPool | None = None
+    if config.checkpoint_store.enabled:
+        checkpoint_store = CheckpointStore(
+            path=config.checkpoint_store.path,
+            node_id=config.node_id,
+            sweep_interval_seconds=config.checkpoint_store.sweep_interval_seconds,
+            event_bus=event_bus,
+        )
+        logger.info(
+            "CheckpointStore enabled — path=%s sweep_interval=%ds",
+            config.checkpoint_store.path, config.checkpoint_store.sweep_interval_seconds,
+        )
+
+    if config.task_pool.enabled and checkpoint_store is not None:
+        task_pool = TaskPool(
+            checkpoint_store=checkpoint_store,
+            job_manager=job_manager,
+            node_id=config.node_id,
+            max_active_tasks=config.task_pool.max_active_tasks,
+            event_bus=event_bus,
+            caller_token=config.auth_token,
+        )
+        logger.info(
+            "TaskPool enabled — max_active_tasks=%d",
+            config.task_pool.max_active_tasks,
+        )
+
+    # -- IntentHandler (requires task_pool) ---------------------------------
+    intent_handler: IntentHandler | None = None
+    if config.llm_enabled and llm_client is not None:
+        intent_handler = IntentHandler(
+            config=config,
+            llm_client=llm_client,
+            gateway_router=gateway_router,
+            node_registry=node_registry,
+            action_registry=registry,
+            conversation_store=conversation_store,
+            schema_validator=schema_validator,  # v5.11
+            credential_store=credential_store,  # v5.12
+            memory_store=memory_store,          # v6.0 Phase 3
+            mcp_registry=mcp_registry,          # v6.0 Phase 3
+            task_pool=task_pool,                # v6.0 Phase 4
+        )
+        logger.info("IntentHandler ready — POST /intent enabled")
+    else:
+        logger.info("LLM not configured — POST /intent will return 503")
 
     # -- lifespan (replaces deprecated on_event) ----------------------------
     @asynccontextmanager
@@ -309,13 +347,19 @@ def create_app(
                 except Exception as exc:
                     logger.warning("Skipping invalid schedule entry: %s — %s", sched_dict, exc)
             await scheduler.start()
+        # v6.0 Phase 4 — load checkpoints + start timeout sweep
+        _cp_loaded = 0
+        if checkpoint_store is not None:
+            _cp_loaded = await checkpoint_store.startup_load()
+            checkpoint_store.start_sweep_task()
         logger.info(
             "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
             "loaded %d credential session(s), llm=%s, "
             "event_bus=%s, persisted_events=%d, "
             "scheduler=%s, static_schedules=%d, "
-            "sessions=%s(loaded=%d), memory=%s(entries=%d), mcp=%s(tools=%d)",
+            "sessions=%s(loaded=%d), memory=%s(entries=%d), mcp=%s(tools=%d), "
+            "checkpoints(loaded=%d) task_pool=%s",
             config.trusted_nodes, swept_uploads, swept_sessions,
             _cred_sessions, "enabled" if config.llm_enabled else "disabled",
             "enabled" if event_bus is not None else "disabled", _eb_loaded,
@@ -323,6 +367,7 @@ def create_app(
             config.session.backend, _sess_loaded,
             "enabled" if memory_store is not None else "disabled", _mem_loaded,
             "enabled" if mcp_registry is not None else "disabled", _mcp_tools,
+            _cp_loaded, "enabled" if task_pool is not None else "disabled",
         )
         yield
         job_manager.stop_cleanup_loop()
@@ -335,6 +380,9 @@ def create_app(
         # v6.0 Phase 3 — disconnect MCP servers
         if mcp_registry is not None:
             await mcp_registry.shutdown()
+        # v6.0 Phase 4 — stop checkpoint sweep task
+        if checkpoint_store is not None:
+            await checkpoint_store.stop_sweep_task()
         # v5.13 — final credential flush before exit
         await credential_store.stop_flush_task()
         logger.info("Shutdown complete")
@@ -355,6 +403,9 @@ def create_app(
     app.state.memory_store = memory_store     # v6.0 Phase 3
     app.state.mcp_registry = mcp_registry     # v6.0 Phase 3
     app.state.conversation_store = conversation_store  # v6.0 Phase 3
+    app.state.checkpoint_store = checkpoint_store  # v6.0 Phase 4
+    app.state.task_pool = task_pool           # v6.0 Phase 4
+    app.state.intent_handler = intent_handler  # v6.0 Phase 4 (for resume injection)
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -855,7 +906,14 @@ def create_app(
                 status_code=503,
             )
 
-        resp: IntentResponse = await intent_handler.handle(req)
+        import uuid as _uuid
+        task_id = f"task-{_uuid.uuid4().hex[:12]}"
+        resp = await intent_handler.handle(req, task_id=task_id)
+
+        # v6.0 Phase 4: handle suspension
+        if isinstance(resp, TaskSuspendedResponse):
+            return JSONResponse(content=resp.model_dump(), status_code=202)  # 202 Accepted (pending)
+
         return JSONResponse(content=resp.model_dump(), status_code=200)
 
     @app.get("/sessions/{session_id}")
@@ -1302,5 +1360,117 @@ def create_app(
             limit=limit,
         )
         return JSONResponse({"events": [e.model_dump() for e in events], "total": len(events)})
+
+    # =======================================================================
+    # v6.0 Phase 4 — TASK SUSPENSION & RESUMPTION ENDPOINTS
+    # =======================================================================
+
+    @app.get("/tasks")
+    async def list_tasks_endpoint() -> JSONResponse:
+        """List all active and suspended tasks managed by the TaskPool.
+
+        Returns:
+            200 — TaskListResponse with tasks array
+            503 — TaskPool not enabled on this node
+        """
+        if task_pool is None:
+            return JSONResponse(
+                {"error": "TASK_POOL_NOT_ENABLED",
+                 "detail": "task_pool.enabled = false in node.yaml"},
+                status_code=503,
+            )
+        tasks = await task_pool.list_tasks()
+        status_summary = await task_pool.get_status()
+        return JSONResponse({
+            "tasks": tasks,
+            "total": len(tasks),
+            **status_summary,
+        })
+
+    @app.get("/tasks/{task_id}/checkpoint")
+    async def get_task_checkpoint_endpoint(task_id: str) -> JSONResponse:
+        """Retrieve the checkpoint details for a specific task.
+
+        Returns:
+            200 — checkpoint data
+            404 — task not found
+            503 — TaskPool not enabled
+        """
+        if checkpoint_store is None:
+            return JSONResponse(
+                {"error": "CHECKPOINT_STORE_NOT_ENABLED"}, status_code=503
+            )
+        cp = await checkpoint_store.get_by_task_id(task_id)
+        if cp is None:
+            return JSONResponse(
+                {"error": "TASK_NOT_FOUND", "task_id": task_id}, status_code=404
+            )
+        # Return checkpoint without full message history (can be large)
+        data = cp.model_dump()
+        data["message_count"] = len(data.pop("messages", []))
+        return JSONResponse(data)
+
+    @app.post("/tasks/{task_id}/answer")
+    async def answer_task_endpoint(task_id: str, req: TaskAnswerRequest) -> JSONResponse:
+        """Manually inject an answer to resume a suspended task.
+
+        This endpoint is used for:
+          - Human-in-the-loop answers (agent-to-human clarification)
+          - Manual testing / debugging
+          - Fallback when EventBus answer routing fails
+
+        The task resumes immediately in a background coroutine.
+
+        Returns:
+            200 — task resumed successfully
+            404 — task not found or not in suspended state
+            503 — TaskPool not enabled
+        """
+        if task_pool is None:
+            return JSONResponse(
+                {"error": "TASK_POOL_NOT_ENABLED"}, status_code=503
+            )
+
+        success, message = await task_pool.resume_by_task_id(
+            task_id=task_id,
+            answer=req.answer,
+            answered_by=req.answered_by,
+            intent_handler=intent_handler,
+        )
+
+        if not success:
+            return JSONResponse(
+                {"error": "RESUME_FAILED", "detail": message, "task_id": task_id},
+                status_code=404,
+            )
+
+        return JSONResponse({
+            "task_id": task_id,
+            "resumed": True,
+            "message": message,
+        })
+
+    @app.delete("/tasks/{task_id}")
+    async def cancel_task_endpoint(task_id: str) -> JSONResponse:
+        """Cancel a suspended task without resuming it.
+
+        The task checkpoint is marked as 'timed_out'.
+
+        Returns:
+            200 — cancelled
+            404 — not found
+            503 — TaskPool not enabled
+        """
+        if task_pool is None:
+            return JSONResponse({"error": "TASK_POOL_NOT_ENABLED"}, status_code=503)
+
+        success, message = await task_pool.cancel_task(task_id)
+        if not success:
+            return JSONResponse(
+                {"error": "CANCEL_FAILED", "detail": message, "task_id": task_id},
+                status_code=404,
+            )
+
+        return JSONResponse({"task_id": task_id, "cancelled": True, "message": message})
 
     return app

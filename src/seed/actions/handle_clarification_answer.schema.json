@@ -1,0 +1,18 @@
+{
+  "description": "Resume a suspended task by providing the answer to its pending clarification question. Triggered automatically by clarification.answered EventBus events.",
+  "async_action": false,
+  "params_schema": {
+    "question_id": {
+      "type": "string",
+      "description": "The pending_question_id from the suspended checkpoint. Matches the correlation_id in the clarification.answered event."
+    },
+    "answer": {
+      "type": "string",
+      "description": "The answer to inject into the suspended task's conversation history."
+    },
+    "answered_by": {
+      "type": "string",
+      "description": "Node ID or name of the entity that provided the answer. Used for logging and audit."
+    }
+  }
+}

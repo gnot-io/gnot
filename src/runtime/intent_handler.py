@@ -58,10 +58,12 @@ from runtime.models import (
     IntentRequest,
     IntentResponse,
     SyncActionResponse,
+    TaskSuspendedResponse,
     TraceInfo,
 )
 from runtime.credential_store import CredentialStore
 from runtime.node_registry import NodeRegistry
+from runtime.checkpoint_store import TaskSuspendedException
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,7 @@ class IntentHandler:
         credential_store: CredentialStore | None = None,
         memory_store=None,     # v6.0 Phase 3: AgentMemoryStore | None
         mcp_registry=None,     # v6.0 Phase 3: MCPRegistry | None
+        task_pool=None,        # v6.0 Phase 4: TaskPool | None
     ) -> None:
         self._config = config
         self._llm = llm_client
@@ -146,11 +149,23 @@ class IntentHandler:
         self._credential_store = credential_store  # v5.12: encrypted session credential store
         self._memory = memory_store                # v6.0 Phase 3
         self._mcp = mcp_registry                  # v6.0 Phase 3
+        self._task_pool = task_pool                # v6.0 Phase 4
 
     # ── public ───────────────────────────────────────────────────────────────
 
-    async def handle(self, req: IntentRequest) -> IntentResponse:
-        """Entry point — process one user prompt and return a reply."""
+    async def handle(
+        self,
+        req: IntentRequest,
+        task_id: str | None = None,
+        job_id: str | None = None,
+    ) -> IntentResponse | TaskSuspendedResponse:
+        """Entry point — process one user prompt and return a reply.
+
+        v6.0 Phase 4: If the LLM calls suspend_and_ask, saves a checkpoint
+        and returns a TaskSuspendedResponse instead of a normal IntentResponse.
+        """
+        import uuid as _uuid
+        task_id = task_id or f"task-{_uuid.uuid4().hex[:12]}"
         max_turns = req.max_turns or self._config.intent_max_turns
         session = await self._store.get_or_create(req.session_id)
         # v5.12: merge new credentials into session store, retrieve full set
@@ -186,6 +201,7 @@ class IntentHandler:
         turns = 0
         truncated = False
         reply = ""
+        suspend_exc: TaskSuspendedException | None = None
 
         for turn in range(max_turns):
             turns = turn + 1
@@ -216,7 +232,25 @@ class IntentHandler:
 
                 # Execute all requested tool calls (usually 1, rarely parallel)
                 for tc in llm_resp.tool_calls:
-                    tool_result = await self._execute_tool_call(tc, caller_credentials)
+                    try:
+                        tool_result = await self._execute_tool_call(tc, caller_credentials)
+                    except TaskSuspendedException as exc:
+                        # ── v6.0 Phase 4: Task suspension ──────────────────
+                        # Save messages snapshot BEFORE adding tool result
+                        suspend_exc = exc
+                        # Record a placeholder tool result so session history is valid
+                        session.add_raw({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "content": json.dumps({
+                                "status": "suspended",
+                                "question_id": exc.question_id,
+                                "message": f"Task suspended — waiting for answer to: {exc.question}",
+                            }),
+                        })
+                        break   # stop processing further tool calls
+
                     brief = f"{tc.arguments.get('action', tc.name)} on {tc.arguments.get('target_node_id', '?')}"
                     actions_taken.append(brief)
                     logger.info("[intent] tool call: %s → %s", brief, tool_result[:120])
@@ -228,6 +262,36 @@ class IntentHandler:
                         "name": tc.name,
                         "content": tool_result,
                     })
+
+                # ── Handle suspension: save checkpoint and return early ──────
+                if suspend_exc is not None:
+                    if self._task_pool is not None:
+                        checkpoint = await self._task_pool.handle_suspension(
+                            exc=suspend_exc,
+                            task_id=task_id,
+                            session_id=session.session_id,
+                            original_prompt=req.prompt,
+                            messages=list(session.messages),
+                            turn_count=turns,
+                            job_id=job_id,
+                        )
+                    else:
+                        # No TaskPool — log and return suspended response directly
+                        logger.warning(
+                            "[intent] suspend_and_ask called but no TaskPool configured"
+                        )
+                        checkpoint = None
+
+                    return TaskSuspendedResponse(
+                        session_id=session.session_id,
+                        task_id=task_id,
+                        question=suspend_exc.question,
+                        question_id=suspend_exc.question_id,
+                        asked_node=suspend_exc.ask_node,
+                        target_role=suspend_exc.target_role,
+                        timeout_seconds=suspend_exc.timeout_seconds,
+                        assumption=suspend_exc.assumption,
+                    )
 
                 # Loop continues — LLM will interpret the tool result
                 continue
@@ -258,6 +322,190 @@ class IntentHandler:
             truncated=truncated,
         )
 
+    async def handle_resume(
+        self,
+        checkpoint: "TaskCheckpoint",  # noqa: F821
+        answer: str,
+    ) -> IntentResponse:
+        """Continue a suspended task from a saved checkpoint.
+
+        v6.0 Phase 4: Reconstructs the LLM conversation from checkpoint.messages,
+        injects the answer as a tool result for the suspend_and_ask call, and
+        continues the ReAct loop until the LLM gives a final reply.
+
+        Args:
+            checkpoint: The loaded TaskCheckpoint from CheckpointStore.
+            answer: The answer to inject into the conversation.
+
+        Returns:
+            IntentResponse with the final reply.
+        """
+        from runtime.models import TaskCheckpoint as _TC  # avoid circular import at module level
+
+        # Retrieve (or re-create) the session
+        session = await self._store.get_or_create(checkpoint.session_id)
+
+        # Restore the message history from the checkpoint
+        # The checkpoint messages include the assistant's suspend_and_ask tool_call
+        # AND the placeholder tool result we saved.  We need to REPLACE that
+        # placeholder with the real answer.
+        messages = list(checkpoint.messages)
+
+        # Find and replace the placeholder tool result for the suspend_and_ask call
+        tool_call_id = checkpoint.suspend_tool_call_id
+        replaced = False
+        for i, msg in enumerate(messages):
+            if (msg.get("role") == "tool"
+                    and msg.get("tool_call_id") == tool_call_id):
+                messages[i] = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": "mesh_action",
+                    "content": json.dumps({
+                        "status": "answered",
+                        "answer": answer,
+                        "message": "Clarification received — continue the task.",
+                    }),
+                }
+                replaced = True
+                break
+
+        if not replaced:
+            # Append a fresh tool result if the placeholder wasn't found
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": "mesh_action",
+                "content": json.dumps({
+                    "status": "answered",
+                    "answer": answer,
+                    "message": "Clarification received — continue the task.",
+                }),
+            })
+
+        # Restore session messages (replace with checkpoint + answer)
+        session.messages.clear()
+        for msg in messages:
+            session.messages.append(msg)
+
+        system_prompt = (
+            self._config.intent_system_prompt
+            or self._build_system_prompt(session_id=session.session_id)
+        )
+
+        tools = [MESH_TOOL_SPEC]
+        if self._mcp is not None:
+            mcp_specs = self._mcp.get_tool_specs()
+            if mcp_specs:
+                tools = tools + mcp_specs
+
+        max_turns = self._config.intent_max_turns
+        actions_taken: list[str] = []
+        tokens_used = 0
+        turns = 0
+        truncated = False
+        reply = ""
+
+        for turn in range(max_turns):
+            turns = turn + 1
+            current_messages = list(session.messages)
+
+            try:
+                llm_resp: LLMResponse = await self._llm.chat(
+                    messages=current_messages,
+                    system=system_prompt,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.2,
+                )
+            except Exception as exc:
+                logger.error("[intent-resume] LLM call failed on turn %d: %s", turn, exc)
+                reply = f"I encountered an error resuming the task: {exc}"
+                session.add_message("assistant", reply)
+                break
+
+            tokens_used += llm_resp.usage.get("total_tokens", 0)
+
+            if llm_resp.tool_calls:
+                session.add_raw(_build_assistant_tool_call_msg(llm_resp))
+
+                for tc in llm_resp.tool_calls:
+                    try:
+                        tool_result = await self._execute_tool_call(tc, {})
+                    except TaskSuspendedException as nested_exc:
+                        # Nested suspension — save as new checkpoint
+                        logger.info(
+                            "[intent-resume] nested suspension for task %s",
+                            checkpoint.task_id,
+                        )
+                        session.add_raw({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "content": json.dumps({
+                                "status": "suspended",
+                                "question_id": nested_exc.question_id,
+                                "message": f"Task suspended again — waiting for: {nested_exc.question}",
+                            }),
+                        })
+                        if self._task_pool is not None:
+                            await self._task_pool.handle_suspension(
+                                exc=nested_exc,
+                                task_id=checkpoint.task_id,
+                                session_id=session.session_id,
+                                original_prompt=checkpoint.original_prompt,
+                                messages=list(session.messages),
+                                turn_count=checkpoint.turn_count + turns,
+                            )
+                        reply = f"Task suspended again — question: {nested_exc.question}"
+                        session.add_message("assistant", reply)
+                        return IntentResponse(
+                            session_id=session.session_id,
+                            reply=reply,
+                            turns=turns,
+                            actions_taken=actions_taken,
+                            tokens_used=tokens_used,
+                            truncated=False,
+                        )
+
+                    brief = f"{tc.arguments.get('action', tc.name)} on {tc.arguments.get('target_node_id', '?')}"
+                    actions_taken.append(brief)
+                    logger.info("[intent-resume] tool call: %s → %s", brief, tool_result[:120])
+
+                    session.add_raw({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tc.name,
+                        "content": tool_result,
+                    })
+                continue
+
+            reply = llm_resp.content or ""
+            session.add_message("assistant", reply)
+            break
+
+        else:
+            truncated = True
+            reply = (
+                reply
+                or "I reached the maximum number of steps after resuming. "
+                   "Please check the task status."
+            )
+            session.add_message("assistant", reply)
+
+        logger.info(
+            "[intent-resume] task %s completed after resume (turns=%d)",
+            checkpoint.task_id, turns,
+        )
+        return IntentResponse(
+            session_id=session.session_id,
+            reply=reply,
+            turns=turns,
+            actions_taken=actions_taken,
+            tokens_used=tokens_used,
+            truncated=truncated,
+        )
+
     # ── tool execution ───────────────────────────────────────────────────────
 
     async def _execute_tool_call(
@@ -268,6 +516,7 @@ class IntentHandler:
         Supports:
           - mesh_action: route to GNOT node action
           - mcp__{server}__{tool}: route to MCP server tool (v6.0 Phase 3)
+          - suspend_and_ask: suspend the task (v6.0 Phase 4) — raises TaskSuspendedException
         """
         # v6.0 Phase 3: route MCP tool calls directly
         if self._mcp is not None and self._mcp.is_mcp_tool(tc.name):
@@ -276,11 +525,39 @@ class IntentHandler:
 
         args = tc.arguments
 
-        # Validate required fields
+        # v6.0 Phase 4: intercept suspend_and_ask
+        # LLM calls: mesh_action("self", "suspend_and_ask", {...})
         target = args.get("target_node_id", "")
         action = args.get("action", "")
         params = args.get("params", {})
 
+        _self_targets = {"self", self._config.node_id}
+        if action == "suspend_and_ask" and target in _self_targets:
+            import uuid as _uuid
+            question = params.get("question", "")
+            ask_node = params.get("ask_node", "")
+            target_role = params.get("target_role", "")
+            timeout_seconds = int(params.get("timeout_seconds", 86400))
+            timeout_action = params.get("timeout_action", "use_assumption")
+            assumption = params.get("assumption", "")
+            question_id = params.get("question_id") or f"q-{_uuid.uuid4().hex[:12]}"
+
+            logger.info(
+                "[intent] suspend_and_ask: question=%r ask_node=%r target_role=%r",
+                question, ask_node, target_role,
+            )
+            raise TaskSuspendedException(
+                question=question,
+                question_id=question_id,
+                ask_node=ask_node,
+                target_role=target_role,
+                timeout_seconds=timeout_seconds,
+                timeout_action=timeout_action,
+                assumption=assumption,
+                suspend_tool_call_id=tc.id,
+            )
+
+        # Validate required fields for normal mesh_action
         if not target or not action:
             return json.dumps({"error": "INVALID_TOOL_ARGS", "detail": "target_node_id and action are required"})
 
