@@ -59,6 +59,7 @@ Each guide builds on the previous one. If you are new to GNOT, start with **Guid
 | [20](./20-database-migration/README.md) | **Database Migration Between Private Networks** | Dump MySQL/PostgreSQL across NAT; automated verify and row count check |
 | [21](./21-notification-actions/README.md) | **Notification Actions** | Telegram, Discord, Twilio SMS, WhatsApp — reusable alert action library |
 | [22](./22-tts-tti-actions/README.md) | **Text-to-Image and Text-to-Speech** | DALL-E 3, Stability AI, fal.ai FLUX, ElevenLabs, OpenAI TTS, gTTS |
+| [23](./23-ai-dev-team/README.md) | **AI Dev Team (Multi-Agent)** | PM, Analyst, Architect, Developer, Tester, Reviewer agents — deliver working code from one requirement |
 
 ---
 
