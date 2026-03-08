@@ -647,3 +647,89 @@ class GatewayConnectResponse(BaseModel):
     gateway_node_id: str
     connected: bool
     message: str = ""
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 6 — External Participant Interaction models
+# ---------------------------------------------------------------------------
+
+class ExternalParticipant(BaseModel):
+    """A human or external system that can interact with the mesh via a channel.
+
+    Registered per-cluster with one or more roles.  The transport field
+    determines how the participant is notified of pending interactions.
+    """
+    participant_id: str = Field(default_factory=lambda: f"participant-{uuid.uuid4().hex[:12]}")
+    name: str
+    roles: list[str]                        # ["pm", "product-owner"]
+    transport: str = "polling"              # "webhook" | "polling" | "session"
+    transport_target: str = ""             # URL (webhook) or session_id (session); empty = polling
+    auth_token: str                         # bearer token for submit/poll endpoints
+    cluster_id: str
+    active: bool = True
+    registered_at: float = Field(default_factory=time.time)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class InteractionReply(BaseModel):
+    """A single reply (answer, comment, or tag) in an InteractionThread."""
+    reply_id: str = Field(default_factory=lambda: f"reply-{uuid.uuid4().hex[:12]}")
+    question_id: str                        # which thread this belongs to
+    participant_id: str
+    participant_name: str = ""
+    content: str
+    reply_type: str = "answer"             # "answer" | "comment" | "tag"
+    timestamp: float = Field(default_factory=time.time)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class InteractionThread(BaseModel):
+    """One question from an agent + all participant replies.
+
+    Created when an agent calls suspend_and_ask with a target_role.
+    Resolved when the first valid answer arrives.
+    """
+    question_id: str                        # = correlation_id / pending_question_id from checkpoint
+    source_agent: str                       # node_id of the asking agent
+    required_role: str                      # role needed to answer (e.g. "pm")
+    question_text: str
+    cluster_id: str
+    status: str = "open"                    # "open" | "answered" | "timed_out"
+    created_at: float = Field(default_factory=time.time)
+    answered_at: float | None = None
+    replies: list[InteractionReply] = Field(default_factory=list)
+    resolution: InteractionReply | None = None   # first accepted answer
+
+    def is_open(self) -> bool:
+        return self.status == "open"
+
+
+# v6.0 Phase 6 — HTTP request/response models
+
+class ParticipantRegisterRequest(BaseModel):
+    """POST /participants/register."""
+    name: str
+    roles: list[str]
+    transport: str = "polling"
+    transport_target: str = ""
+    auth_token: str
+    cluster_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ParticipantUpdateRequest(BaseModel):
+    """PATCH /participants/{id}."""
+    name: str | None = None
+    roles: list[str] | None = None
+    transport: str | None = None
+    transport_target: str | None = None
+    active: bool | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class InteractionRespondRequest(BaseModel):
+    """POST /channels/{cluster_id}/interactions/{question_id}/respond."""
+    participant_id: str
+    auth_token: str                         # participant's auth token
+    content: str
+    reply_type: str = "answer"             # "answer" | "comment" | "tag"

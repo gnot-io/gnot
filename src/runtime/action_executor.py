@@ -73,7 +73,10 @@ class ActionExecutor:
         schema_validator: ActionSchemaValidator | None = None,
         llm_client: LLMClient | None = None,
         caller_policies: list[CallerPolicy] | None = None,
-        memory_store=None,  # v6.0 Phase 3: AgentMemoryStore | None
+        memory_store=None,          # v6.0 Phase 3: AgentMemoryStore | None
+        participant_registry=None,  # v6.0 Phase 6: ExternalParticipantRegistry | None
+        channel_log=None,           # v6.0 Phase 6: ChannelLog | None
+        interaction_router=None,    # v6.0 Phase 6: InteractionRouter | None
     ) -> None:
         self._registry = registry
         self._job_manager = job_manager
@@ -82,7 +85,10 @@ class ActionExecutor:
         self._schema_validator = schema_validator
         self._llm_client = llm_client
         self._caller_policies: list[CallerPolicy] = caller_policies or []
-        self._memory_store = memory_store  # v6.0 Phase 3
+        self._memory_store = memory_store              # v6.0 Phase 3
+        self._participant_registry = participant_registry  # v6.0 Phase 6
+        self._channel_log = channel_log                    # v6.0 Phase 6
+        self._interaction_router = interaction_router      # v6.0 Phase 6
 
     # -- public API ---------------------------------------------------------
 
@@ -260,5 +266,13 @@ class ActionExecutor:
         # v6.0 Phase 3: inject memory store for agent_remember/recall/forget
         if self._memory_store is not None:
             ctx["memory_store"] = self._memory_store
+
+        # v6.0 Phase 6: inject participant registry, channel log, interaction router
+        if self._participant_registry is not None:
+            ctx["participant_registry"] = self._participant_registry
+        if self._channel_log is not None:
+            ctx["channel_log"] = self._channel_log
+        if self._interaction_router is not None:
+            ctx["interaction_router"] = self._interaction_router
 
         return ctx

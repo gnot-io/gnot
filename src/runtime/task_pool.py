@@ -127,6 +127,8 @@ class TaskPool:
 
         # Emit clarification.needed event
         await self._emit_clarification_needed(checkpoint)
+        # v6.0 Phase 6: additionally emit participant.input_required when target_role set
+        await self._emit_participant_input_required(checkpoint)
 
         logger.info(
             "TaskPool: task %s suspended — question_id=%s ask_node=%s target_role=%s",
@@ -387,3 +389,31 @@ class TaskPool:
             await self._event_bus.emit(event)
         except Exception as exc:
             logger.error("TaskPool: failed to emit clarification.answered: %s", exc)
+
+    async def _emit_participant_input_required(self, checkpoint: "TaskCheckpoint") -> None:
+        """Emit participant.input_required when target_role is set (v6.0 Phase 6)."""
+        if self._event_bus is None or not checkpoint.target_role:
+            return
+        try:
+            from runtime.models import Event
+            event = Event(
+                event_type="participant.input_required",
+                source_node=self._node_id,
+                payload={
+                    "question_id": checkpoint.pending_question_id,
+                    "question": checkpoint.pending_question,
+                    "required_role": checkpoint.target_role,
+                    "source_agent": checkpoint.node_id,
+                    "task_id": checkpoint.task_id,
+                    "cluster_id": "",
+                },
+                correlation_id=checkpoint.pending_question_id,
+                reply_to=self._node_id,
+            )
+            await self._event_bus.emit(event)
+            logger.debug(
+                "TaskPool: emitted participant.input_required role=%s question_id=%s",
+                checkpoint.target_role, checkpoint.pending_question_id,
+            )
+        except Exception as exc:
+            logger.error("TaskPool: failed to emit participant.input_required: %s", exc)

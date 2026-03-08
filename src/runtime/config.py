@@ -315,6 +315,10 @@ class NodeConfig:
         default_factory=lambda: ClusterOrchestratorConfig()
     )
 
+    # v6.0 Phase 6 — External Participant Interaction
+    participants_dir: str = "/tmp/gnot-participants"
+    channel_log_dir: str = "/tmp/gnot-channels"
+
     # Derived helpers -------------------------------------------------------
 
     @property

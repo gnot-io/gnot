@@ -255,6 +255,8 @@ class WorkerAgent:
             pass
 
         return gw_node_id
+
+    async def add_sub_route(
         self,
         sub_node_id: str,
         sub_actions: list[str],

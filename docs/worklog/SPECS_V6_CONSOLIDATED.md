@@ -567,7 +567,7 @@ class InteractionThread:
     resolution: InteractionAnswer | None
 ```
 
-**ChannelLog** — Shared conversation space per cluster.
+**ChannelLog** — Persistent interaction log per cluster channel.
 
 ### 9.2 Role-based routing
 
@@ -608,10 +608,10 @@ A specialized node deployed per cluster that:
 ### 9.5 HTTP Endpoints (on ExternalAdapter)
 
 - `POST /participants/register`, `GET /participants`, `PATCH /participants/{id}`, `DELETE /participants/{id}`
-- `GET /room/{cluster_id}` — full ChannelLog
-- `GET /room/{cluster_id}/pending` — pending questions for participant
-- `GET /room/{cluster_id}/threads/{qid}` — single thread
-- `POST /room/{cluster_id}/threads/{qid}/reply` — answer/comment/tag
+- `GET /channels/{cluster_id}/log` — full ChannelLog
+- `GET /channels/{cluster_id}/pending` — pending interactions for participant
+- `GET /channels/{cluster_id}/interactions/{qid}` — single interaction thread
+- `POST /channels/{cluster_id}/interactions/{qid}/respond` — answer/comment/tag
 
 ---
 
@@ -623,7 +623,7 @@ A specialized node deployed per cluster that:
 
 A GNOT node that bridges between ChannelLog and Telegram Bot API:
 - Outbound: GNOT events → formatted Telegram messages
-- Inbound: Telegram replies → GNOT room replies → resolve threads
+- Inbound: Telegram replies → channel log entries → resolve interaction threads
 
 ```yaml
 # telegram-transport-cluster-A/node.yaml
@@ -639,24 +639,24 @@ telegram:
 
 ### 10.2 Session Push via SSE (Phase 2)
 
-Add SSE endpoint cho /intent sessions để nhận real-time room updates:
+Add SSE endpoint cho /intent sessions để nhận real-time channel log updates:
 
 ```
 GET /intent/stream/{session_id}
 Accept: text/event-stream
 
-→ Server pushes: room.answer, room.question_new, room.comment_added, heartbeat
+→ Server pushes: channel.interaction_resolved, channel.interaction_opened, channel.comment_added, heartbeat
 ```
 
 Client synthesizes SSE events as system messages → LLM responds proactively.
 
 ### 10.3 ChannelLog layer (Phase 3)
 
-Unified conversation state across all channels:
+Unified interaction state across all transport channels:
 
 ```python
 class ChannelLog:
-    """Central message store. All bridges read/write here."""
+    """Central interaction log. All transport bridges read/write here."""
     async def post_message(message: ChannelLogEntry) -> None
     async def register_bridge(bridge_id, callback) -> None
 ```
@@ -871,7 +871,7 @@ Nếu muốn giữ JSONL: cần in-memory index (đã thiết kế trong spec) n
 
 **v6.5 analysis:** Hai hướng — MVP (TelegramTransport node) và Full (Session Push + ChannelLog).
 
-**Decision (adopted from spec):** Hướng 1 first (simple, no core changes), Hướng 2 later (SSE push, unified conversation). Phù hợp với incremental delivery.
+**Decision (adopted from spec):** Hướng 1 first (simple, no core changes), Hướng 2 later (SSE push, unified channel log). Phù hợp với incremental delivery.
 
 ### 13.9 MCP — Approach B selected ✅ Applied
 
@@ -1011,7 +1011,7 @@ participant_registry:
   storage_dir: ./participants
 
 channel_log:
-  storage_dir: ./room
+  storage_dir: ./channel-log
 ```
 
 ---
@@ -1050,9 +1050,9 @@ channel_log:
 | `GET /participants` | F: Participants | List participants |
 | `PATCH /participants/{id}` | F: Participants | Update roles |
 | `DELETE /participants/{id}` | F: Participants | Deactivate |
-| `GET /room/{cluster_id}` | F: ChannelLog | View room |
-| `GET /room/{cluster_id}/pending` | F: ChannelLog | Pending questions |
-| `POST /room/.../reply` | F: ChannelLog | Answer/comment |
+| `GET /channels/{cluster_id}/log` | F: ChannelLog | View channel log |
+| `GET /channels/{cluster_id}/pending` | F: ChannelLog | Pending interactions |
+| `POST /channels/.../respond` | F: ChannelLog | Answer/comment |
 | `POST /sessions/{id}/clear` | H: Memory | Clear messages |
 | `GET /memory` | H: Memory | Read memories |
 | `POST /memory` | H: Memory | Write memory |
@@ -1302,10 +1302,10 @@ Phase 8: Polish & Production        ─── 1–2 weeks ───  Hardening
 | 6.1 | ExternalParticipant model | ~40 | `models.py` | P0 |
 | 6.2 | ExternalParticipantRegistry | ~250 | `external_participant_registry.py` | P0 |
 | 6.3 | InteractionThread, InteractionReply models | ~80 | `models.py` | P0 |
-| 6.4 | ChannelLog (room state + thread management) | ~300 | `channel_log.py` | P0 |
+| 6.4 | ChannelLog (interaction log + thread management) | ~300 | `channel_log.py` | P0 |
 | 6.5 | InteractionRouter (role-based routing) | ~200 | `interaction_router.py` | P0 |
 | 6.6 | Participant HTTP endpoints | ~120 | `server.py` | P0 |
-| 6.7 | Room HTTP endpoints | ~120 | `server.py` | P0 |
+| 6.7 | Channel log HTTP endpoints | ~120 | `server.py` | P0 |
 | 6.8 | suspend_and_ask: target_role path | ~40 | `intent_handler.py` | P0 |
 | 6.9 | ExternalAdapter role blueprint | ~50 | `blueprints/roles/external-adapter.md` | P0 |
 | 6.10 | route_interaction_to_participants action | ~80 | `seed/actions/` | P0 |
@@ -1324,7 +1324,7 @@ Phase 8: Polish & Production        ─── 1–2 weeks ───  Hardening
 
 **Goal:** Humans interact via Telegram.
 
-**Dependencies:** Phase 6 (participant registry, room endpoints)
+**Dependencies:** Phase 6 (participant registry, channel log endpoints)
 
 **Deliverables:**
 

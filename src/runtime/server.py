@@ -93,6 +93,12 @@ from runtime.models import (
     BlueprintListResponse,
     GatewayConnectRequest,
     GatewayConnectResponse,
+    ExternalParticipant,
+    InteractionThread,
+    InteractionReply,
+    ParticipantRegisterRequest,
+    ParticipantUpdateRequest,
+    InteractionRespondRequest,
 )
 from runtime.node_registry import NodeRegistry
 from runtime.resolver import NodeNotFoundError, NodeResolver
@@ -111,6 +117,9 @@ from runtime.checkpoint_store import CheckpointStore
 from runtime.task_pool import TaskPool
 from runtime.blueprint_store import BlueprintStore, BlueprintNotFoundError
 from runtime.cluster_orchestrator import ClusterOrchestrator
+from runtime.external_participant_registry import ExternalParticipantRegistry, ParticipantNotFoundError, ParticipantAuthError
+from runtime.channel_log import ChannelLog, ThreadNotFoundError, ThreadAlreadyAnsweredError
+from runtime.interaction_router import InteractionRouter
 
 logger = logging.getLogger(__name__)
 
@@ -191,13 +200,34 @@ def create_app(
             len(config.mcp_servers),
         )
 
+    # -- v6.0 Phase 6: ExternalParticipantRegistry + ChannelLog + InteractionRouter --
+    participant_registry = ExternalParticipantRegistry(
+        path=config.participants_dir,
+        node_id=config.node_id,
+    )
+    channel_log = ChannelLog(
+        path=config.channel_log_dir,
+        node_id=config.node_id,
+    )
+    # InteractionRouter needs event_bus, which is created later; we wire it post-construction.
+    # Start with event_bus=None; wire below after event_bus is available.
+    interaction_router = InteractionRouter(
+        participant_registry=participant_registry,
+        channel_log=channel_log,
+        event_bus=None,   # wired after event_bus is created
+        node_id=config.node_id,
+    )
+
     # -- ActionExecutor (after memory_store is ready) -----------------------
     executor = ActionExecutor(
         registry, job_manager, config.node_id,
         schema_validator=schema_validator,
         llm_client=llm_client,
         caller_policies=list(config.caller_policies),
-        memory_store=memory_store,   # v6.0 Phase 3
+        memory_store=memory_store,          # v6.0 Phase 3
+        participant_registry=participant_registry,  # v6.0 Phase 6
+        channel_log=channel_log,                    # v6.0 Phase 6
+        interaction_router=interaction_router,      # v6.0 Phase 6
     )
 
     # -- v5.3: gateway state ------------------------------------------------
@@ -269,6 +299,8 @@ def create_app(
             gateway_node_id=config.node_id,
         )
         logger.info("EventBus enabled — node=%s", config.node_id)
+        # v6.0 Phase 6: wire event_bus into interaction_router now that it's available
+        interaction_router._event_bus = event_bus
 
     # -- v6.0 Phase 2: Scheduler -------------------------------------------
     scheduler: Scheduler | None = None
@@ -377,6 +409,9 @@ def create_app(
             checkpoint_store.start_sweep_task()
         # v6.0 Phase 5 — load blueprint catalog
         _bp_count = await blueprint_store.startup_load()
+        # v6.0 Phase 6 — load participant registry + channel log
+        _participant_count = await participant_registry.startup_load()
+        _channel_threads = await channel_log.startup_load()
         logger.info(
             "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
@@ -434,6 +469,9 @@ def create_app(
     app.state.intent_handler = intent_handler  # v6.0 Phase 4 (for resume injection)
     app.state.blueprint_store = blueprint_store      # v6.0 Phase 5
     app.state.cluster_orchestrator = cluster_orchestrator  # v6.0 Phase 5
+    app.state.participant_registry = participant_registry  # v6.0 Phase 6
+    app.state.channel_log = channel_log                    # v6.0 Phase 6
+    app.state.interaction_router = interaction_router      # v6.0 Phase 6
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -1501,8 +1539,6 @@ def create_app(
 
         return JSONResponse({"task_id": task_id, "cancelled": True, "message": message})
 
-    return app
-
     # =======================================================================
     # v6.0 Phase 5 — BLUEPRINT ENDPOINTS
     # =======================================================================
@@ -1774,5 +1810,209 @@ def create_app(
             },
             status_code=200,
         )
+
+    # ==========================================================================
+    # v6.0 Phase 6 — External Participant endpoints
+    # ==========================================================================
+
+    @app.post("/participants/register")
+    async def register_participant_endpoint(req: ParticipantRegisterRequest) -> JSONResponse:
+        """POST /participants/register — register an external participant."""
+        participant = ExternalParticipant(
+            name=req.name,
+            roles=req.roles,
+            transport=req.transport,
+            transport_target=req.transport_target,
+            auth_token=req.auth_token,
+            cluster_id=req.cluster_id,
+            metadata=req.metadata,
+        )
+        saved = await participant_registry.register(participant)
+        return JSONResponse(saved.model_dump(), status_code=201)
+
+    @app.get("/participants")
+    async def list_participants_endpoint(
+        cluster_id: str | None = Query(None),
+        role: str | None = Query(None),
+        active_only: bool = Query(True),
+    ) -> JSONResponse:
+        """GET /participants — list registered participants."""
+        if role:
+            participants = await participant_registry.list_by_role(
+                role=role, cluster_id=cluster_id, active_only=active_only,
+            )
+        else:
+            participants = await participant_registry.list_all(
+                cluster_id=cluster_id, active_only=active_only,
+            )
+        return JSONResponse({
+            "participants": [p.model_dump() for p in participants],
+            "total": len(participants),
+        })
+
+    @app.patch("/participants/{participant_id}")
+    async def update_participant_endpoint(
+        participant_id: str, req: ParticipantUpdateRequest,
+    ) -> JSONResponse:
+        """PATCH /participants/{id} — partial update."""
+        try:
+            updates = {k: v for k, v in req.model_dump().items() if v is not None}
+            updated = await participant_registry.update(participant_id, updates)
+            return JSONResponse(updated.model_dump())
+        except ParticipantNotFoundError:
+            return JSONResponse({"error": f"Participant {participant_id} not found"}, status_code=404)
+
+    @app.delete("/participants/{participant_id}")
+    async def deactivate_participant_endpoint(participant_id: str) -> JSONResponse:
+        """DELETE /participants/{id} — deactivate (soft-delete) a participant."""
+        try:
+            updated = await participant_registry.deactivate(participant_id)
+            return JSONResponse({"deactivated": True, "participant_id": updated.participant_id})
+        except ParticipantNotFoundError:
+            return JSONResponse({"error": f"Participant {participant_id} not found"}, status_code=404)
+
+    # ==========================================================================
+    # v6.0 Phase 6 — Channel Log endpoints
+    # ==========================================================================
+
+    @app.get("/channels/{cluster_id}/log")
+    async def get_channel_log_endpoint(cluster_id: str) -> JSONResponse:
+        """GET /channels/{cluster_id}/log — full interaction log for a cluster."""
+        threads = await channel_log.list_threads(cluster_id)
+        return JSONResponse({
+            "cluster_id": cluster_id,
+            "threads": [t.model_dump() for t in threads],
+            "total": len(threads),
+        })
+
+    @app.get("/channels/{cluster_id}/pending")
+    async def get_pending_interactions_endpoint(
+        cluster_id: str,
+        role: str | None = Query(None),
+    ) -> JSONResponse:
+        """GET /channels/{cluster_id}/pending — open threads pending response.
+
+        Participants poll this endpoint to discover questions they can answer.
+        Optionally filter by required_role.
+        """
+        threads = await channel_log.list_pending(cluster_id, required_role=role)
+        return JSONResponse({
+            "cluster_id": cluster_id,
+            "pending": [t.model_dump() for t in threads],
+            "total": len(threads),
+        })
+
+    @app.get("/channels/{cluster_id}/interactions/{question_id}")
+    async def get_interaction_thread_endpoint(
+        cluster_id: str, question_id: str,
+    ) -> JSONResponse:
+        """GET /channels/{cluster_id}/interactions/{question_id} — single thread."""
+        try:
+            thread = await channel_log.get_thread(cluster_id, question_id)
+            return JSONResponse(thread.model_dump())
+        except ThreadNotFoundError:
+            return JSONResponse(
+                {"error": f"Thread {question_id} not found in cluster {cluster_id}"},
+                status_code=404,
+            )
+
+    @app.post("/channels/{cluster_id}/interactions/{question_id}/respond")
+    async def respond_to_interaction_endpoint(
+        cluster_id: str, question_id: str, req: InteractionRespondRequest,
+    ) -> JSONResponse:
+        """POST /channels/{cluster_id}/interactions/{question_id}/respond.
+
+        Submit an answer, comment, or tag to an interaction thread.
+
+        For reply_type="answer": resolves the thread (first answer wins) and
+        triggers task resumption by emitting clarification.answered.
+        """
+        # Authenticate participant
+        try:
+            participant = await participant_registry.get(req.participant_id)
+            participant_registry.verify_auth(participant, req.auth_token)
+        except ParticipantNotFoundError:
+            return JSONResponse(
+                {"error": f"Participant {req.participant_id} not found"},
+                status_code=404,
+            )
+        except ParticipantAuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=403)
+
+        reply = InteractionReply(
+            question_id=question_id,
+            participant_id=req.participant_id,
+            participant_name=participant.name,
+            content=req.content,
+            reply_type=req.reply_type,
+        )
+
+        try:
+            if req.reply_type == "answer":
+                # Resolve the thread (first answer wins)
+                try:
+                    thread = await channel_log.resolve_thread(cluster_id, question_id, reply)
+                except ThreadAlreadyAnsweredError:
+                    # Thread already answered — accept as comment instead
+                    reply.reply_type = "comment"
+                    thread = await channel_log.add_reply(cluster_id, reply)
+                    return JSONResponse({
+                        "accepted": True,
+                        "reply_type": "comment",
+                        "reason": "Thread already answered — recorded as comment",
+                        "thread_status": thread.status,
+                    })
+
+                # Emit events + trigger task resumption
+                await interaction_router.handle_answer(
+                    cluster_id=cluster_id,
+                    question_id=question_id,
+                    participant_id=req.participant_id,
+                    content=req.content,
+                )
+
+                # Direct task resumption if TaskPool is available
+                if task_pool is not None:
+                    try:
+                        await task_pool.resume_task(
+                            question_id=question_id,
+                            answer=req.content,
+                            answered_by=f"participant:{req.participant_id}",
+                            intent_handler=intent_handler,
+                        )
+                        logger.info(
+                            "Phase 6: resumed task via TaskPool for question_id=%s",
+                            question_id,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Phase 6: TaskPool.resume_task failed (will rely on event): %s",
+                            exc,
+                        )
+
+                return JSONResponse({
+                    "accepted": True,
+                    "reply_type": "answer",
+                    "thread_status": thread.status,
+                    "question_id": question_id,
+                    "message": "Answer accepted — task resumption triggered",
+                })
+            else:
+                # comment or tag — just add to thread, no resolution
+                try:
+                    thread = await channel_log.add_reply(cluster_id, reply)
+                except ThreadNotFoundError:
+                    return JSONResponse(
+                        {"error": f"Thread {question_id} not found"},
+                        status_code=404,
+                    )
+                return JSONResponse({
+                    "accepted": True,
+                    "reply_type": req.reply_type,
+                    "thread_status": thread.status,
+                })
+        except Exception as exc:
+            logger.error("Phase 6 respond endpoint error: %s", exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     return app

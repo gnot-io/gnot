@@ -1,0 +1,26 @@
+{
+  "description": "Route an agent question to external participants with the required role. Opens an InteractionThread in the ChannelLog and notifies matching participants via their registered transport (webhook or polling). Used by the ExternalAdapter node when it receives a participant.input_required event.",
+  "async_action": false,
+  "params_schema": {
+    "question_id": {
+      "type": "string",
+      "description": "Correlation ID for the question — matches the pending_question_id from the TaskCheckpoint."
+    },
+    "question": {
+      "type": "string",
+      "description": "The question text to surface to participants."
+    },
+    "required_role": {
+      "type": "string",
+      "description": "Role needed to answer (e.g. 'pm', 'product-owner', 'devops')."
+    },
+    "source_agent": {
+      "type": "string",
+      "description": "Node ID of the agent asking the question."
+    },
+    "cluster_id": {
+      "type": "string",
+      "description": "Cluster context — used to scope participant lookup to the correct cluster."
+    }
+  }
+}

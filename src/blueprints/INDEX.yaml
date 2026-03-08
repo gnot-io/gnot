@@ -78,3 +78,13 @@ blueprints:
       Suitable for prototypes, small features, and cost-sensitive runs.
     tags: [team, minimal, lean, small-team]
     path: teams/minimal-cluster.yaml
+
+  - id: external-adapter
+    type: role
+    name: External Adapter
+    description: >
+      Bridges the mesh and external human participants. Manages the participant
+      registry, routes agent questions to role-matched humans, and relays answers
+      back so suspended tasks can resume.
+    tags: [role, human-in-the-loop, external, participants]
+    path: roles/external-adapter.md
