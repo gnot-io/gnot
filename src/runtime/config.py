@@ -67,6 +67,18 @@ DEFAULT_EVENT_DELIVERY_TIMEOUT: float = 10.0
 DEFAULT_EVENT_DELIVERY_RETRY_COUNT: int = 3
 DEFAULT_EVENT_DELIVERY_RETRY_BACKOFF: float = 2.0
 
+# v6.0 Phase 2 defaults — Scheduler
+DEFAULT_SCHEDULER_ENABLED: bool = True
+
+# v6.0 Phase 2 defaults — Adaptive polling
+DEFAULT_POLL_INTERVAL_MAX_SECONDS: int = 60
+DEFAULT_POLL_BACKOFF_MULTIPLIER: float = 1.5
+
+# v6.0 Phase 2 defaults — Registration policy
+# NOTE: "open" matches historical v5.x behavior (any authenticated node accepted).
+# Set to "whitelist" in node.yaml for stricter environments.
+DEFAULT_REGISTRATION_POLICY: str = "open"  # open | whitelist | invite_only
+
 
 # ---------------------------------------------------------------------------
 # v5.11 — Caller authorization policy
@@ -109,6 +121,16 @@ def check_caller_policy(
         if policy.token == caller_token:
             return policy.allows(action)
     return False  # token not in any policy
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 2 — Scheduler configuration
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SchedulerConfig:
+    """Configuration for the Scheduler autonomy engine."""
+    enabled: bool = DEFAULT_SCHEDULER_ENABLED
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +215,20 @@ class NodeConfig:
 
     # v6.0 — EventBus
     event_bus: EventBusConfig = field(default_factory=EventBusConfig)
+
+    # v6.0 Phase 2 — Scheduler
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    schedule: tuple = field(default_factory=tuple)  # tuple[dict] — static entries from node.yaml
+
+    # v6.0 Phase 2 — Adaptive polling
+    poll_interval_max_seconds: int = DEFAULT_POLL_INTERVAL_MAX_SECONDS
+    poll_backoff_multiplier: float = DEFAULT_POLL_BACKOFF_MULTIPLIER
+
+    # v6.0 Phase 2 — Multi-gateway
+    additional_gateways: tuple = field(default_factory=tuple)  # tuple[dict] of {address, auth_token}
+
+    # v6.0 Phase 2 — Registration policy
+    registration_policy: str = DEFAULT_REGISTRATION_POLICY  # open | whitelist | invite_only
 
     # Derived helpers -------------------------------------------------------
 
@@ -311,11 +347,29 @@ def load_config(config_path: str | Path) -> NodeConfig:
         delivery_retry_backoff=float(_eb.get("delivery_retry_backoff", DEFAULT_EVENT_DELIVERY_RETRY_BACKOFF)),
         persistence_path=_eb.get("persistence_path"),
     )
-    # Re-build config with event_bus populated (frozen dataclass requires reconstruction)
+
+    # Parse v6.0 Phase 2 fields
+    _sched_section = raw.get("scheduler", {}) or {}
+    _sched_config = SchedulerConfig(
+        enabled=_sched_section.get("enabled", DEFAULT_SCHEDULER_ENABLED),
+    )
+    _static_schedule = tuple(raw.get("schedule", []) or [])
+    _additional_gateways = tuple(raw.get("additional_gateways", []) or [])
+    _registration_policy = raw.get("registration_policy", DEFAULT_REGISTRATION_POLICY)
+
+    # Re-build config with all v6 fields populated (frozen dataclass requires reconstruction)
     config = NodeConfig(
         **{f.name: getattr(config, f.name) for f in config.__dataclass_fields__.values()
-           if f.name != "event_bus"},
+           if f.name not in ("event_bus", "scheduler", "schedule", "additional_gateways",
+                             "registration_policy", "poll_interval_max_seconds",
+                             "poll_backoff_multiplier")},
         event_bus=_eb_config,
+        scheduler=_sched_config,
+        schedule=_static_schedule,
+        additional_gateways=_additional_gateways,
+        registration_policy=_registration_policy,
+        poll_interval_max_seconds=int(raw.get("poll_interval_max_seconds", DEFAULT_POLL_INTERVAL_MAX_SECONDS)),
+        poll_backoff_multiplier=float(raw.get("poll_backoff_multiplier", DEFAULT_POLL_BACKOFF_MULTIPLIER)),
     )
 
     logger.info(

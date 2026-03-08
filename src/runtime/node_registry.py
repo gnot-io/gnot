@@ -80,20 +80,23 @@ class NodeRegistry:
         trusted_node_ids: list[str] | None = None,
         heartbeat_timeout_seconds: int = DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
         ping_timeout_seconds: float = PING_TIMEOUT_SECONDS,
+        registration_policy: str = "open",   # v6.0: "open" | "whitelist" | "invite_only"
     ) -> None:
         self._entries: dict[str, _NodeEntry] = {}
         self._lock = asyncio.Lock()
         self._heartbeat_timeout = heartbeat_timeout_seconds
         self._ping_timeout = ping_timeout_seconds
+        self._registration_policy = registration_policy   # v6.0
 
         # Pre-populate from static config
         for node_id in (trusted_node_ids or []):
             self._entries[node_id] = _NodeEntry(node_id=node_id)
 
         logger.info(
-            "NodeRegistry initialised — %d static trusted node(s): %s",
+            "NodeRegistry initialised — %d static trusted node(s): %s, policy=%s",
             len(self._entries),
             list(self._entries.keys()),
+            registration_policy,
         )
 
     # -- staleness helper ---------------------------------------------------
@@ -145,10 +148,11 @@ class NodeRegistry:
 
         Called when a worker POSTs to /nodes/register.
 
-        v5.10: accepts BGP-style route advertisement:
-          - actions:           list of actions this node can execute directly
-          - advertise_routes:  sub-node IDs reachable via this node
-          - capabilities:      {sub_node_id: [actions]} for each advertised route
+        v5.10: accepts BGP-style route advertisement.
+        v6.0: honours registration_policy:
+          - whitelist (default): only pre-configured trusted_nodes accepted
+          - open: any authenticated node accepted (auto-added to registry)
+          - invite_only: future — treated as whitelist for now
 
         If node is already trusted (from config), this updates its entry.
         If it is new, it is added and any advertised sub-routes are installed.
@@ -167,16 +171,26 @@ class NodeRegistry:
                     node_id, address, actions,
                 )
             else:
-                self._entries[node_id] = _NodeEntry(
-                    node_id=node_id,
-                    address=address,
-                    actions=list(actions or []),
-                    action_specs=dict(action_specs or {}),
-                )
-                logger.info(
-                    "New node registered: %s (address=%s, actions=%s)",
-                    node_id, address, actions,
-                )
+                # v6.0: open policy → auto-accept any authenticated node
+                if self._registration_policy == "open":
+                    self._entries[node_id] = _NodeEntry(
+                        node_id=node_id,
+                        address=address,
+                        actions=list(actions or []),
+                        action_specs=dict(action_specs or {}),
+                    )
+                    logger.info(
+                        "New node auto-registered (open policy): %s (address=%s, actions=%s)",
+                        node_id, address, actions,
+                    )
+                else:
+                    # whitelist / invite_only: do NOT accept unknown nodes
+                    logger.warning(
+                        "Registration denied for unknown node %s (policy=%s) — "
+                        "add to trusted_nodes or set registration_policy: open",
+                        node_id, self._registration_policy,
+                    )
+                    return
 
             # v5.10 — install advertised sub-routes
             # For every sub-node the registering node claims to reach,

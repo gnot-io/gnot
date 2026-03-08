@@ -80,6 +80,8 @@ from runtime.models import (
     EmitResponse,
     SubscribeRequest,
     SubscribeResponse,
+    ScheduleEntry,
+    SchedulePatchRequest,
 )
 from runtime.node_registry import NodeRegistry
 from runtime.resolver import NodeNotFoundError, NodeResolver
@@ -90,6 +92,7 @@ from runtime.credential_store import CredentialStore
 from runtime.intent_handler import IntentHandler
 from runtime.event_bus import EventBus
 from runtime.channel_registry import ChannelRegistry
+from runtime.scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +145,7 @@ def create_app(
         trusted_node_ids=config.trusted_nodes,
         heartbeat_timeout_seconds=config.heartbeat_timeout_seconds,
         ping_timeout_seconds=config.ping_timeout_seconds,
+        registration_policy=config.registration_policy,  # v6.0
     )
     job_queue = JobQueue()
 
@@ -214,6 +218,17 @@ def create_app(
         )
         logger.info("EventBus enabled — node=%s", config.node_id)
 
+    # -- v6.0 Phase 2: Scheduler -------------------------------------------
+    scheduler: Scheduler | None = None
+    if config.scheduler.enabled:
+        scheduler = Scheduler(
+            gateway_router=gateway_router,
+            event_bus=event_bus,
+            node_id=config.node_id,
+            caller_token=config.auth_token,
+        )
+        logger.info("Scheduler enabled — node=%s", config.node_id)
+
     # -- lifespan (replaces deprecated on_event) ----------------------------
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ARG001
@@ -228,17 +243,34 @@ def create_app(
         if event_bus is not None:
             _eb_loaded = await event_bus.load_persisted_events()
             await event_bus.start()
+        # v6.0 Phase 2 — start Scheduler + load static schedule entries from config
+        _sched_count = 0
+        if scheduler is not None:
+            # Load static entries defined in node.yaml schedule: section
+            for sched_dict in (config.schedule or []):
+                try:
+                    entry = ScheduleEntry(**sched_dict)
+                    await scheduler.add_entry(entry)
+                    _sched_count += 1
+                except Exception as exc:
+                    logger.warning("Skipping invalid schedule entry: %s — %s", sched_dict, exc)
+            await scheduler.start()
         logger.info(
             "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
             "loaded %d credential session(s), llm=%s, "
-            "event_bus=%s, persisted_events=%d",
+            "event_bus=%s, persisted_events=%d, "
+            "scheduler=%s, static_schedules=%d",
             config.trusted_nodes, swept_uploads, swept_sessions,
             _cred_sessions, "enabled" if config.llm_enabled else "disabled",
             "enabled" if event_bus is not None else "disabled", _eb_loaded,
+            "enabled" if scheduler is not None else "disabled", _sched_count,
         )
         yield
         job_manager.stop_cleanup_loop()
+        # v6.0 Phase 2 — stop Scheduler
+        if scheduler is not None:
+            await scheduler.stop()
         # v6.0 — stop EventBus
         if event_bus is not None:
             await event_bus.stop()
@@ -258,6 +290,7 @@ def create_app(
     app.state.node_registry = node_registry  # v5.12: exposed for WorkerAgent liveness check
     app.state.event_bus = event_bus           # v6.0: exposed for testing
     app.state.channel_registry = channel_registry  # v6.0
+    app.state.scheduler = scheduler           # v6.0 Phase 2
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -907,6 +940,57 @@ def create_app(
             media_type="application/gzip",
             headers={"Content-Disposition": "attachment; filename=mesh-runtime.tar.gz"},
         )
+
+    # -----------------------------------------------------------------------
+    # v6.0 Phase 2 — Scheduler endpoints
+    # -----------------------------------------------------------------------
+
+    @app.post("/schedule")
+    async def create_schedule_endpoint(entry: ScheduleEntry) -> JSONResponse:
+        """Register a new schedule trigger."""
+        if scheduler is None:
+            return JSONResponse({"error": "Scheduler not enabled"}, status_code=503)
+        schedule_id = await scheduler.add_entry(entry)
+        return JSONResponse({"schedule_id": schedule_id, "trigger_type": entry.trigger_type}, status_code=201)
+
+    @app.get("/schedule")
+    async def list_schedule_endpoint() -> JSONResponse:
+        """List all schedule entries."""
+        if scheduler is None:
+            return JSONResponse({"error": "Scheduler not enabled"}, status_code=503)
+        entries = await scheduler.list_entries()
+        return JSONResponse({"entries": [e.model_dump() for e in entries], "total": len(entries)})
+
+    @app.delete("/schedule/{schedule_id}")
+    async def delete_schedule_endpoint(schedule_id: str) -> JSONResponse:
+        """Cancel and remove a schedule entry."""
+        if scheduler is None:
+            return JSONResponse({"error": "Scheduler not enabled"}, status_code=503)
+        removed = await scheduler.remove_entry(schedule_id)
+        if not removed:
+            return JSONResponse({"error": f"Schedule not found: {schedule_id}"}, status_code=404)
+        return JSONResponse({"schedule_id": schedule_id, "removed": True})
+
+    @app.post("/schedule/{schedule_id}/trigger")
+    async def trigger_schedule_endpoint(schedule_id: str) -> JSONResponse:
+        """Manually trigger a schedule entry (debug/test)."""
+        if scheduler is None:
+            return JSONResponse({"error": "Scheduler not enabled"}, status_code=503)
+        dispatched = await scheduler.trigger_manual(schedule_id)
+        if not dispatched:
+            return JSONResponse({"error": f"Schedule not found: {schedule_id}"}, status_code=404)
+        return JSONResponse({"schedule_id": schedule_id, "triggered": True})
+
+    @app.patch("/schedule/{schedule_id}")
+    async def patch_schedule_endpoint(schedule_id: str, req: SchedulePatchRequest) -> JSONResponse:
+        """Partially update a schedule entry (enable/disable, change interval, etc.)."""
+        if scheduler is None:
+            return JSONResponse({"error": "Scheduler not enabled"}, status_code=503)
+        updates = req.model_dump(exclude_none=True)
+        updated = await scheduler.patch_entry(schedule_id, updates)
+        if updated is None:
+            return JSONResponse({"error": f"Schedule not found: {schedule_id}"}, status_code=404)
+        return JSONResponse(updated.model_dump())
 
     # -----------------------------------------------------------------------
     # v6.0 — EventBus endpoints

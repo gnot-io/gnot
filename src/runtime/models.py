@@ -397,3 +397,55 @@ class SubscribeResponse(BaseModel):
     sub_id: str
     event_type_pattern: str
     subscriber_node: str
+
+
+# ---------------------------------------------------------------------------
+# v6.0 — Scheduler models (Phase 2)
+# ---------------------------------------------------------------------------
+
+class ScheduleEntry(BaseModel):
+    """A registered schedule trigger on the Scheduler."""
+    schedule_id: str = Field(default_factory=lambda: f"sched-{uuid.uuid4().hex[:12]}")
+    trigger_type: str                               # "condition" | "cron" | "event" | "once"
+    target_node: str
+    run_action: str
+    run_params: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    description: str = ""
+
+    # condition trigger
+    check_action: str | None = None
+    check_params: dict[str, Any] = Field(default_factory=dict)
+    check_interval_seconds: int = 60
+
+    # cron trigger
+    cron_expression: str | None = None             # 5-field cron: "*/5 * * * *"
+
+    # event trigger
+    on_event_type: str | None = None
+    on_payload_filter: dict[str, Any] | None = None
+
+    # once trigger
+    run_at: float | None = None                    # unix timestamp
+
+    # shared options
+    max_concurrent: int = 1
+    skip_if_running: bool = True
+    timeout_seconds: int = 300
+    retry_on_failure: int = 0
+
+    # Internal runtime fields (not persisted)
+    running_count: int = 0
+    last_run_at: float | None = None
+    last_result: str | None = None                 # "success" | "failed" | "skipped"
+
+
+class SchedulePatchRequest(BaseModel):
+    """PATCH /schedule/{id} — partial update."""
+    enabled: bool | None = None
+    run_params: dict[str, Any] | None = None
+    check_interval_seconds: int | None = None
+    cron_expression: str | None = None
+    description: str | None = None
+    timeout_seconds: int | None = None
+    retry_on_failure: int | None = None
