@@ -183,7 +183,78 @@ class WorkerAgent:
 
     # -- sub-route management (kept on WorkerAgent, used by all connections) --
 
-    async def add_sub_route(
+    async def connect_to_gateway(
+        self,
+        gateway_address: str,
+        auth_token: str | None = None,
+    ) -> str:
+        """Runtime gateway join — connect to a new gateway without restart.
+
+        v6.0 Phase 5: Called by POST /gateways/connect endpoint.
+        Creates and starts a new GatewayConnection for the given address.
+
+        Args:
+            gateway_address: Full HTTP URL of the gateway (e.g. "http://localhost:8090")
+            auth_token:      Bearer token to use when calling the gateway.
+                             Falls back to primary auth_token if not set.
+
+        Returns:
+            Gateway node_id after successful registration.
+
+        Raises:
+            RuntimeError if registration fails.
+        """
+        from runtime.gateway_connection import GatewayConnection
+
+        gw_url = gateway_address.rstrip("/")
+        token = auth_token or self._config.auth_token
+        gw_headers: dict[str, str] = {}
+        if token:
+            gw_headers["Authorization"] = f"Bearer {token}"
+
+        poll_interval_max = getattr(self._config, "poll_interval_max_seconds", 60)
+        poll_backoff = getattr(self._config, "poll_backoff_multiplier", 1.5)
+        label = f"runtime-{len(self._connections)}"
+
+        conn = GatewayConnection(
+            gateway_url=gw_url,
+            gateway_label=label,
+            node_id=self._node_id,
+            node_config=self._config,
+            executor=self._executor,
+            action_registry=self._action_registry,
+            schema_registry=self._schema_registry,
+            self_address=self._self_address,
+            auth_headers=gw_headers,
+            heartbeat_interval=self._config.heartbeat_interval_seconds,
+            poll_interval=self._config.poll_interval_seconds,
+            poll_interval_max=poll_interval_max,
+            poll_backoff_multiplier=poll_backoff,
+            sub_routes_getter=lambda: self._sub_routes,
+            sub_routes_lock=self._sub_routes_lock,
+            local_node_registry=getattr(self, "_local_node_registry", None),
+        )
+
+        await conn.start()
+        self._connections.append(conn)
+
+        logger.info(
+            "WorkerAgent[%s] connected to new gateway %s (label=%s) — total gateways: %d",
+            self._node_id, gw_url, label, len(self._connections),
+        )
+
+        # Try to resolve the gateway node_id from /health
+        gw_node_id = gw_url
+        try:
+            async with httpx.AsyncClient(timeout=5.0, headers=gw_headers) as client:
+                resp = await client.get(f"{gw_url}/health")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    gw_node_id = data.get("node_id", gw_url)
+        except httpx.HTTPError:
+            pass
+
+        return gw_node_id
         self,
         sub_node_id: str,
         sub_actions: list[str],

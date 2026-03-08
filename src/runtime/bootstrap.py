@@ -70,7 +70,12 @@ class ActionFile:
 
 @dataclass
 class BootstrapRequest:
-    """All inputs needed to bootstrap a new node."""
+    """All inputs needed to bootstrap a new node.
+
+    v6.0: Extended with full v6.x config fields: multi-gateway, LLM, EventBus,
+    Scheduler, TaskPool, CheckpointStore, Session, Memory, MCP servers.
+    All v6 fields are optional and default to safe values.
+    """
 
     node_id: str
     listen: str
@@ -84,6 +89,61 @@ class BootstrapRequest:
     pip_packages: list[str] = field(default_factory=list)
     runtime_entry: str = "node_runtime.py"
     auth_token: str | None = None
+    allowed_tokens: list[str] = field(default_factory=list)
+
+    # v6.0: Gateway topology
+    gateway_node_id: str | None = None
+    gateway_address: str | None = None
+    gateway_auth_token: str | None = None
+    additional_gateways: list[dict] = field(default_factory=list)
+    registration_policy: str = "open"
+
+    # v6.0: LLM configuration
+    llm_api_key: str | None = None
+    llm_model: str = "claude-sonnet-4-20250514"
+    llm_base_url: str = "https://api.anthropic.com/v1"
+    llm_timeout_seconds: float = 120.0
+
+    # v6.0: EventBus
+    event_bus_enabled: bool = True
+    event_bus_max_log_size: int = 10000
+    event_bus_persist_path: str = "./events/"
+
+    # v6.0: Scheduler + static schedule entries
+    scheduler_enabled: bool = True
+    schedule: list[dict] = field(default_factory=list)
+
+    # v6.0: Adaptive polling
+    poll_interval_seconds: int = 5
+    poll_interval_max_seconds: int = 60
+    poll_backoff_multiplier: float = 1.5
+
+    # v6.0: Task lifecycle
+    task_pool_enabled: bool = True
+    max_active_tasks: int = 3
+
+    # v6.0: Checkpoint store
+    checkpoint_store_enabled: bool = True
+    checkpoint_store_path: str = "./checkpoints/"
+    checkpoint_default_timeout_seconds: int = 86400
+
+    # v6.0: Persistent sessions
+    session_backend: str = "persistent"      # "memory" | "persistent"
+    session_storage_dir: str = "./sessions"
+    session_default_ttl_seconds: int = 0    # 0 = infinite
+    session_max_messages: int = 0           # 0 = unlimited
+
+    # v6.0: Agent memory
+    memory_enabled: bool = True
+    memory_storage_dir: str = "./memory"
+    memory_inject_into_prompt: bool = True
+    memory_max_entries: int = 1000
+
+    # v6.0: MCP servers (list of dicts with id, transport, command/url, env)
+    mcp_servers: list[dict] = field(default_factory=list)
+
+    # v6.0: Node-level skills reference
+    skills_file: str = "./skills.md"
 
 
 @dataclass
@@ -254,30 +314,131 @@ class BootstrapEngine:
         tracker: _RollbackTracker,
         result: BootstrapResult,
     ) -> None:
-        """Write node.yaml for the new node."""
+        """Write node.yaml for the new node — v6.0 full config support.
+
+        Generates a complete node.yaml with all v6.x fields: gateway topology,
+        LLM config, EventBus, Scheduler, TaskPool, CheckpointStore, Session,
+        Memory, and MCP servers. Only non-default sections are emitted.
+        """
+        host, port = request.listen.rsplit(":", 1)
+        bind_host = "127.0.0.1" if host == "0.0.0.0" else host
+        self_addr = f"http://{bind_host}:{port}"
+
+        # ---- Core identity -------------------------------------------------
         config_data: dict[str, Any] = {
             "node_id": request.node_id,
             "listen": request.listen,
-            "nodes": {request.node_id: f"http://127.0.0.1:{request.listen.rsplit(':', 1)[1]}"},
             "default_resolver": request.default_resolver,
             "max_hop": request.max_hop,
             "cache_ttl_seconds": request.cache_ttl_seconds,
         }
-        if request.extra_nodes:
-            config_data["nodes"].update(request.extra_nodes)
+
+        # ---- Node addresses table ------------------------------------------
+        nodes: dict[str, str] = {request.node_id: self_addr}
+        nodes.update(request.extra_nodes or {})
+        config_data["nodes"] = nodes
+
+        # ---- Auth tokens ---------------------------------------------------
         if request.auth_token:
             config_data["auth_token"] = request.auth_token
+        if request.allowed_tokens:
+            config_data["allowed_tokens"] = list(request.allowed_tokens)
 
+        # ---- Gateway (worker nodes only) -----------------------------------
+        if request.gateway_node_id:
+            config_data["gateway_node_id"] = request.gateway_node_id
+        if request.gateway_address:
+            config_data["gateway_address"] = request.gateway_address
+        if request.gateway_auth_token:
+            config_data["gateway_auth_token"] = request.gateway_auth_token
+        if request.additional_gateways:
+            config_data["additional_gateways"] = list(request.additional_gateways)
+
+        # ---- Registration policy (gateway nodes) ---------------------------
+        if request.registration_policy != "open":
+            config_data["registration_policy"] = request.registration_policy
+
+        # ---- LLM -----------------------------------------------------------
+        if request.llm_api_key:
+            config_data["llm"] = {
+                "provider": "anthropic",
+                "model": request.llm_model,
+                "api_key": request.llm_api_key,
+                "base_url": request.llm_base_url,
+                "timeout_seconds": request.llm_timeout_seconds,
+            }
+
+        if request.skills_file and request.skills_file != "./skills.md":
+            config_data["skills_file"] = request.skills_file
+        else:
+            config_data["skills_file"] = "./skills.md"
+
+        # ---- EventBus ------------------------------------------------------
+        config_data["event_bus"] = {
+            "enabled": request.event_bus_enabled,
+            "max_log_size": request.event_bus_max_log_size,
+            "delivery_timeout_seconds": 10,
+            "delivery_retry_count": 3,
+            "delivery_retry_backoff": 2.0,
+            "persist_path": request.event_bus_persist_path,
+        }
+
+        # ---- Scheduler -----------------------------------------------------
+        config_data["scheduler"] = {"enabled": request.scheduler_enabled}
+
+        # ---- Static schedule entries ---------------------------------------
+        if request.schedule:
+            config_data["schedule"] = list(request.schedule)
+
+        # ---- Adaptive polling ----------------------------------------------
+        config_data["poll_interval_seconds"] = request.poll_interval_seconds
+        config_data["poll_interval_max_seconds"] = request.poll_interval_max_seconds
+        config_data["poll_backoff_multiplier"] = request.poll_backoff_multiplier
+
+        # ---- Task pool -----------------------------------------------------
+        config_data["task_pool"] = {
+            "enabled": request.task_pool_enabled,
+            "max_active_tasks": request.max_active_tasks,
+        }
+
+        # ---- Checkpoint store ----------------------------------------------
+        config_data["checkpoint_store"] = {
+            "enabled": request.checkpoint_store_enabled,
+            "path": request.checkpoint_store_path,
+            "default_timeout_seconds": request.checkpoint_default_timeout_seconds,
+        }
+
+        # ---- Session persistence -------------------------------------------
+        config_data["session"] = {
+            "backend": request.session_backend,
+            "storage_dir": request.session_storage_dir,
+            "default_ttl_seconds": request.session_default_ttl_seconds,
+            "max_messages_per_session": request.session_max_messages,
+        }
+
+        # ---- Agent memory --------------------------------------------------
+        config_data["memory"] = {
+            "enabled": request.memory_enabled,
+            "storage_dir": request.memory_storage_dir,
+            "inject_into_prompt": request.memory_inject_into_prompt,
+            "max_entries": request.memory_max_entries,
+        }
+
+        # ---- MCP servers ---------------------------------------------------
+        if request.mcp_servers:
+            config_data["mcp_servers"] = list(request.mcp_servers)
+
+        # ---- Write to disk -------------------------------------------------
         config_path = node_dir / "node.yaml"
 
         def _do() -> None:
             with open(config_path, "w", encoding="utf-8") as fh:
-                yaml.dump(config_data, fh, default_flow_style=False)
+                yaml.dump(config_data, fh, default_flow_style=False, allow_unicode=True)
 
         await asyncio.to_thread(_do)
         # Undo covered by directory removal
         result.steps_completed.append("write_config")
-        logger.info("Wrote config: %s", config_path)
+        logger.info("Wrote v6 config: %s", config_path)
 
     async def _step_write_skills(
         self,

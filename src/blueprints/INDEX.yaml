@@ -1,0 +1,80 @@
+# GNOT Blueprint Catalog — INDEX.yaml
+# Auto-maintained by BlueprintStore. Do not edit manually while the node is running.
+
+blueprints:
+
+  # ── Role blueprints ────────────────────────────────────────────────────
+
+  - id: pm
+    type: role
+    name: Project Manager
+    description: >
+      Orchestrates cluster workflows, delegates to specialists, tracks progress,
+      synthesizes results, and communicates with humans when decisions are needed.
+    tags: [role, management, orchestration]
+    path: roles/pm.md
+
+  - id: analyst
+    type: role
+    name: Analyst
+    description: >
+      Turns vague goals into precise specifications. Handles requirements elicitation,
+      scope definition, data analysis, and feasibility assessment.
+    tags: [role, analysis, requirements]
+    path: roles/analyst.md
+
+  - id: architect
+    type: role
+    name: Architect
+    description: >
+      Translates requirements into concrete technical designs. Makes foundational
+      decisions on technology, APIs, data models, and system topology.
+    tags: [role, architecture, design]
+    path: roles/architect.md
+
+  - id: developer
+    type: role
+    name: Developer
+    description: >
+      Implements features according to architecture design. Writes production-quality
+      code with unit tests and emits artifacts when complete.
+    tags: [role, development, implementation]
+    path: roles/developer.md
+
+  - id: tester
+    type: role
+    name: Tester
+    description: >
+      Designs and executes tests, finds bugs, and emits clear pass/fail verdicts.
+      Covers unit, integration, and end-to-end testing.
+    tags: [role, testing, qa]
+    path: roles/tester.md
+
+  - id: reviewer
+    type: role
+    name: Reviewer
+    description: >
+      Provides thorough code and architecture reviews. Checks correctness, security,
+      performance, and architecture compliance.
+    tags: [role, review, quality]
+    path: roles/reviewer.md
+
+  # ── Team blueprints ────────────────────────────────────────────────────
+
+  - id: standard-cluster
+    type: team
+    name: Standard Cluster
+    description: >
+      Full 6-role team: PM, Analyst, Architect, Developer, Tester, Reviewer.
+      Suitable for production features and complex multi-module systems.
+    tags: [team, standard, full-team, production]
+    path: teams/standard-cluster.yaml
+
+  - id: minimal-cluster
+    type: team
+    name: Minimal Cluster
+    description: >
+      Lean 4-role team: PM, Analyst, Developer, Tester.
+      Suitable for prototypes, small features, and cost-sensitive runs.
+    tags: [team, minimal, lean, small-team]
+    path: teams/minimal-cluster.yaml

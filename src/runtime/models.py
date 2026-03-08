@@ -510,3 +510,140 @@ class TaskAnswerRequest(BaseModel):
     """POST /tasks/{task_id}/answer — manually inject an answer."""
     answer: str
     answered_by: str = "manual"
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 5 — Cluster Provisioning models
+# ---------------------------------------------------------------------------
+
+class NodeSpec(BaseModel):
+    """Specification for one node in a cluster provisioning request."""
+    node_id: str
+    role: str                               # e.g. "pm", "developer", "gateway"
+    listen: str                             # "0.0.0.0:<port>"
+    skills_md: str = ""                     # role skills (loaded from blueprint)
+    actions: list[dict[str, Any]] = Field(default_factory=list)  # list of {filename, content, schema_content?}
+    blueprint: str | None = None            # role blueprint name (e.g. "pm")
+    auth_token: str | None = None
+    gateway_node_id: str | None = None
+    gateway_address: str | None = None
+    gateway_auth_token: str | None = None
+    allowed_tokens: list[str] = Field(default_factory=list)
+    extra_nodes: dict[str, str] = Field(default_factory=dict)
+    pip_packages: list[str] = Field(default_factory=list)
+    # v6 feature flags
+    event_bus_enabled: bool = True
+    scheduler_enabled: bool = True
+    task_pool_enabled: bool = True
+    checkpoint_store_enabled: bool = True
+    session_backend: str = "persistent"
+    memory_enabled: bool = True
+    poll_interval_seconds: int = 5
+    poll_interval_max_seconds: int = 60
+    poll_backoff_multiplier: float = 1.5
+    # LLM config (inherited from cluster spec if not set)
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    llm_base_url: str | None = None
+    # Schedule wiring (filled by ClusterOrchestrator)
+    schedule: list[dict[str, Any]] = Field(default_factory=list)
+    # Runtime metadata
+    is_gateway: bool = False
+
+
+class ClusterSpec(BaseModel):
+    """Blueprint for provisioning a complete cluster of nodes."""
+    cluster_id: str = Field(default_factory=lambda: f"cluster-{uuid.uuid4().hex[:8]}")
+    cluster_name: str = ""
+    description: str = ""
+    base_dir: str = "."
+    runtime_entry: str = "node_runtime.py"
+    # LLM config (inherited by all nodes unless overridden)
+    llm_api_key: str | None = None
+    llm_model: str = "claude-sonnet-4-20250514"
+    llm_base_url: str = "https://api.anthropic.com/v1"
+    # Auth
+    gateway_token: str | None = None        # generated if not set
+    # Nodes to provision
+    gateway: NodeSpec | None = None         # primary gateway; auto-generated if None
+    workers: list[NodeSpec] = Field(default_factory=list)
+    # Port allocation
+    port_range_start: int = 8090
+    port_range_end: int = 8200
+    # Post-provision wiring
+    wire_subscriptions: bool = True         # auto-wire clarification.answered → handle_clarification_answer
+    kickoff_on_provision: bool = False      # auto-emit cluster.started after provision
+    kickoff_prompt: str = ""               # intent prompt for kickoff (if set)
+    # Metadata
+    tags: dict[str, str] = Field(default_factory=dict)
+
+
+class ClusterNodeResult(BaseModel):
+    """Result of provisioning a single node in a cluster."""
+    node_id: str
+    role: str
+    address: str | None = None
+    pid: int | None = None
+    status: str = "pending"     # pending | running | failed
+    error: str | None = None
+
+
+class ClusterProvisionResult(BaseModel):
+    """Result of POST /clusters/provision."""
+    cluster_id: str
+    status: str = "pending"     # provisioning | running | failed | partial
+    gateway: ClusterNodeResult | None = None
+    workers: list[ClusterNodeResult] = Field(default_factory=list)
+    error: str | None = None
+    provisioned_at: float = Field(default_factory=time.time)
+    port_range_used: list[int] = Field(default_factory=list)
+
+
+class ClusterInfo(BaseModel):
+    """Cluster status — returned by GET /clusters and GET /clusters/{id}."""
+    cluster_id: str
+    cluster_name: str = ""
+    status: str                 # provisioning | running | failed | torn_down
+    gateway: ClusterNodeResult | None = None
+    workers: list[ClusterNodeResult] = Field(default_factory=list)
+    provisioned_at: float
+    torn_down_at: float | None = None
+    kickoff_sent: bool = False
+    tags: dict[str, str] = Field(default_factory=dict)
+
+
+class TeardownResult(BaseModel):
+    """Result of POST /clusters/{id}/teardown."""
+    cluster_id: str
+    stopped_nodes: list[str] = Field(default_factory=list)
+    failed_nodes: list[str] = Field(default_factory=list)
+    archived: bool = False
+    error: str | None = None
+
+
+class BlueprintInfo(BaseModel):
+    """Metadata entry for one blueprint in the catalog."""
+    id: str
+    type: str               # "role" | "team"
+    name: str = ""
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    path: str = ""          # relative file path
+
+class BlueprintListResponse(BaseModel):
+    """Response from GET /blueprints."""
+    blueprints: list[BlueprintInfo]
+    total: int
+
+class GatewayConnectRequest(BaseModel):
+    """POST /gateways/connect — runtime join a new gateway."""
+    address: str
+    auth_token: str | None = None
+    node_id_override: str | None = None     # gateway node_id (resolved if None)
+
+class GatewayConnectResponse(BaseModel):
+    """Response from POST /gateways/connect."""
+    address: str
+    gateway_node_id: str
+    connected: bool
+    message: str = ""

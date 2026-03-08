@@ -1,0 +1,90 @@
+# Standard Cluster — 6-role team composition
+# This blueprint defines a full-featured GNOT cluster with all specialist roles.
+# Use this for complex projects requiring analysis, architecture, development, testing, and review.
+
+name: Standard Cluster
+description: Full 6-role team — PM, Analyst, Architect, Developer, Tester, Reviewer
+tags:
+  - standard
+  - full-team
+  - production
+
+cluster_defaults:
+  session_backend: persistent
+  memory_enabled: true
+  task_pool_enabled: true
+  checkpoint_store_enabled: true
+  event_bus_enabled: true
+  scheduler_enabled: true
+  poll_interval_seconds: 5
+  poll_interval_max_seconds: 60
+  poll_backoff_multiplier: 1.5
+
+# Standard subscriptions wired automatically by ClusterOrchestrator:
+#   clarification.answered → handle_clarification_answer (all nodes)
+#   clarification.timeout  → handle_clarification_timeout (all nodes)
+
+# Roles in this cluster
+roles:
+  - id: pm
+    blueprint: pm
+    description: Project Manager — orchestrates the cluster workflow
+    is_gateway: false
+    event_subscriptions:
+      - event_type_pattern: "task.completed"
+        callback_action: "handle_task_completed"
+        description: "PM receives task completion notifications"
+      - event_type_pattern: "task.failed"
+        callback_action: "handle_task_failed"
+        description: "PM handles task failures"
+      - event_type_pattern: "cluster.started"
+        callback_action: "handle_cluster_started"
+        description: "PM kicks off workflow on cluster start"
+      - event_type_pattern: "test.passed"
+        callback_action: "handle_test_result"
+        description: "PM tracks test results"
+      - event_type_pattern: "test.failed"
+        callback_action: "handle_test_result"
+        description: "PM tracks test failures"
+      - event_type_pattern: "review.approved"
+        callback_action: "handle_review_result"
+        description: "PM tracks review approvals"
+      - event_type_pattern: "review.changes_requested"
+        callback_action: "handle_review_result"
+        description: "PM tracks review rejections"
+
+  - id: analyst
+    blueprint: analyst
+    description: Requirements and Data Analyst
+    is_gateway: false
+
+  - id: architect
+    blueprint: architect
+    description: System Architect — design and technical decisions
+    is_gateway: false
+
+  - id: developer
+    blueprint: developer
+    description: Software Developer — implementation
+    is_gateway: false
+
+  - id: tester
+    blueprint: tester
+    description: QA Engineer — testing and quality assurance
+    is_gateway: false
+
+  - id: reviewer
+    blueprint: reviewer
+    description: Code and Architecture Reviewer
+    is_gateway: false
+
+# Example usage:
+# POST /clusters/provision
+# {
+#   "cluster_id": "my-project",
+#   "cluster_name": "My Project Team",
+#   "team_blueprint": "standard-cluster",
+#   "llm_api_key": "${ANTHROPIC_API_KEY}",
+#   "kickoff_on_provision": true,
+#   "kickoff_prompt": "Build a REST API for user management"
+# }

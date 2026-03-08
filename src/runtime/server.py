@@ -85,6 +85,14 @@ from runtime.models import (
     TaskSuspendedResponse,
     TaskListResponse,
     TaskAnswerRequest,
+    ClusterSpec,
+    ClusterInfo,
+    ClusterProvisionResult,
+    TeardownResult,
+    BlueprintInfo,
+    BlueprintListResponse,
+    GatewayConnectRequest,
+    GatewayConnectResponse,
 )
 from runtime.node_registry import NodeRegistry
 from runtime.resolver import NodeNotFoundError, NodeResolver
@@ -101,6 +109,8 @@ from runtime.agent_memory_store import AgentMemoryStore
 from runtime.mcp_registry import MCPRegistry
 from runtime.checkpoint_store import CheckpointStore
 from runtime.task_pool import TaskPool
+from runtime.blueprint_store import BlueprintStore, BlueprintNotFoundError
+from runtime.cluster_orchestrator import ClusterOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +220,19 @@ def create_app(
     )
 
     bootstrap_engine = BootstrapEngine(seed_config_path=config_path)
+
+    # -- v6.0 Phase 5: BlueprintStore + ClusterOrchestrator ----------------
+    blueprint_store = BlueprintStore(
+        blueprints_dir=config.cluster_orchestrator.blueprints_dir,
+    )
+    cluster_orchestrator = ClusterOrchestrator(
+        seed_config_path=config_path,
+        port_range_start=config.cluster_orchestrator.port_range_start,
+        port_range_end=config.cluster_orchestrator.port_range_end,
+        state_path=config.cluster_orchestrator.state_path,
+        blueprints_dir=config.cluster_orchestrator.blueprints_dir,
+        seed_auth_token=config.auth_token,
+    )
 
     # -- v5.8: upload manager -----------------------------------------------
     upload_manager = UploadManager(
@@ -352,6 +375,8 @@ def create_app(
         if checkpoint_store is not None:
             _cp_loaded = await checkpoint_store.startup_load()
             checkpoint_store.start_sweep_task()
+        # v6.0 Phase 5 — load blueprint catalog
+        _bp_count = await blueprint_store.startup_load()
         logger.info(
             "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
@@ -359,7 +384,7 @@ def create_app(
             "event_bus=%s, persisted_events=%d, "
             "scheduler=%s, static_schedules=%d, "
             "sessions=%s(loaded=%d), memory=%s(entries=%d), mcp=%s(tools=%d), "
-            "checkpoints(loaded=%d) task_pool=%s",
+            "checkpoints(loaded=%d) task_pool=%s, blueprints=%d",
             config.trusted_nodes, swept_uploads, swept_sessions,
             _cred_sessions, "enabled" if config.llm_enabled else "disabled",
             "enabled" if event_bus is not None else "disabled", _eb_loaded,
@@ -368,6 +393,7 @@ def create_app(
             "enabled" if memory_store is not None else "disabled", _mem_loaded,
             "enabled" if mcp_registry is not None else "disabled", _mcp_tools,
             _cp_loaded, "enabled" if task_pool is not None else "disabled",
+            _bp_count,
         )
         yield
         job_manager.stop_cleanup_loop()
@@ -406,6 +432,8 @@ def create_app(
     app.state.checkpoint_store = checkpoint_store  # v6.0 Phase 4
     app.state.task_pool = task_pool           # v6.0 Phase 4
     app.state.intent_handler = intent_handler  # v6.0 Phase 4 (for resume injection)
+    app.state.blueprint_store = blueprint_store      # v6.0 Phase 5
+    app.state.cluster_orchestrator = cluster_orchestrator  # v6.0 Phase 5
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -1472,5 +1500,279 @@ def create_app(
             )
 
         return JSONResponse({"task_id": task_id, "cancelled": True, "message": message})
+
+    return app
+
+    # =======================================================================
+    # v6.0 Phase 5 — BLUEPRINT ENDPOINTS
+    # =======================================================================
+
+    @app.get("/blueprints")
+    async def list_blueprints_endpoint(
+        blueprint_type: str | None = Query(default=None, description="Filter: role | team | generated"),
+        tag: str | None = Query(default=None, description="Filter by tag"),
+    ) -> JSONResponse:
+        """List all available blueprints from the catalog.
+
+        Returns:
+            200 — BlueprintListResponse
+        """
+        tags = [tag] if tag else None
+        entries = await blueprint_store.list_blueprints(blueprint_type=blueprint_type, tags=tags)
+        items = [
+            BlueprintInfo(
+                id=b.get("id", ""),
+                type=b.get("type", ""),
+                name=b.get("name", ""),
+                description=b.get("description", ""),
+                tags=b.get("tags", []),
+                path=b.get("path", ""),
+            )
+            for b in entries
+        ]
+        return JSONResponse(
+            BlueprintListResponse(blueprints=items, total=len(items)).model_dump(),
+            status_code=200,
+        )
+
+    @app.get("/blueprints/{blueprint_type}/{blueprint_id}")
+    async def get_blueprint_endpoint(blueprint_type: str, blueprint_id: str) -> Response:
+        """Retrieve the raw content of a blueprint.
+
+        Returns:
+            200 — blueprint content (text/markdown for roles, text/yaml for teams)
+            404 — blueprint not found
+        """
+        from runtime.blueprint_store import BlueprintNotFoundError as _BNF
+        try:
+            content = await blueprint_store.get_blueprint(blueprint_type, blueprint_id)
+        except _BNF as exc:
+            return JSONResponse({"error": "BLUEPRINT_NOT_FOUND", "detail": str(exc)}, status_code=404)
+        media_type = "text/markdown" if blueprint_type == "role" else "text/yaml"
+        return PlainTextResponse(content=content, media_type=media_type)
+
+    @app.post("/blueprints/save")
+    async def save_blueprint_endpoint(request: Request) -> JSONResponse:
+        """Save a blueprint (LLM-generated or custom) to the blueprint store.
+
+        Body: {type, id, content, name?, description?, tags?}
+
+        Returns:
+            201 — saved
+            400 — missing required fields
+        """
+        body = await request.json()
+        bp_type = body.get("type")
+        bp_id = body.get("id")
+        content = body.get("content")
+        if not all([bp_type, bp_id, content]):
+            return JSONResponse(
+                {"error": "MISSING_FIELDS", "detail": "type, id, and content are required"},
+                status_code=400,
+            )
+        meta = {
+            "name": body.get("name", bp_id),
+            "description": body.get("description", ""),
+            "tags": body.get("tags", []),
+        }
+        saved_path = await blueprint_store.save_blueprint(
+            blueprint_type=str(bp_type),
+            blueprint_id=str(bp_id),
+            content=str(content),
+            meta=meta,
+        )
+        return JSONResponse({"type": bp_type, "id": bp_id, "path": saved_path, "saved": True}, status_code=201)
+
+    # =======================================================================
+    # v6.0 Phase 5 — CLUSTER PROVISIONING ENDPOINTS
+    # =======================================================================
+
+    @app.post("/clusters/provision")
+    async def provision_cluster_endpoint(spec: ClusterSpec) -> JSONResponse:
+        """Provision a complete cluster from a ClusterSpec.
+
+        Synchronous — blocks until all nodes are up (or failed).
+        For large clusters (10+ nodes) consider async kickoff pattern.
+
+        Returns:
+            201 — cluster fully running
+            207 — partial success (some workers failed)
+            500 — provisioning failed
+        """
+        result = await cluster_orchestrator.provision_cluster(spec)
+        if result.status == "running":
+            status_code = 201
+        elif result.status == "partial":
+            status_code = 207
+        else:
+            status_code = 500
+        return JSONResponse(result.model_dump(), status_code=status_code)
+
+    @app.get("/clusters")
+    async def list_clusters_endpoint() -> JSONResponse:
+        """List all known clusters and their current status.
+
+        Returns:
+            200 — list of ClusterInfo
+        """
+        clusters = await cluster_orchestrator.list_clusters()
+        return JSONResponse(
+            {"clusters": [c.model_dump() for c in clusters], "total": len(clusters)},
+            status_code=200,
+        )
+
+    @app.get("/clusters/{cluster_id}")
+    async def get_cluster_endpoint(cluster_id: str) -> JSONResponse:
+        """Get status and node details for a specific cluster.
+
+        Returns:
+            200 — ClusterInfo
+            404 — not found
+        """
+        cluster = await cluster_orchestrator.get_cluster(cluster_id)
+        if cluster is None:
+            return JSONResponse({"error": "CLUSTER_NOT_FOUND", "cluster_id": cluster_id}, status_code=404)
+        return JSONResponse(cluster.model_dump(), status_code=200)
+
+    @app.post("/clusters/{cluster_id}/kickoff")
+    async def kickoff_cluster_endpoint(cluster_id: str, request: Request) -> JSONResponse:
+        """Emit cluster.started event to the cluster's gateway.
+
+        Body (optional): {prompt: str}
+
+        Returns:
+            200 — kickoff emitted
+            404 — cluster not found
+        """
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        prompt = body.get("prompt", "") if isinstance(body, dict) else ""
+        success = await cluster_orchestrator.kickoff_cluster(
+            cluster_id=cluster_id,
+            auth_token=config.auth_token,
+            prompt=str(prompt),
+        )
+        if not success:
+            return JSONResponse({"error": "CLUSTER_NOT_FOUND", "cluster_id": cluster_id}, status_code=404)
+        return JSONResponse({"cluster_id": cluster_id, "kickoff_sent": True}, status_code=200)
+
+    @app.post("/clusters/{cluster_id}/teardown")
+    async def teardown_cluster_endpoint(cluster_id: str, request: Request) -> JSONResponse:
+        """Gracefully stop all nodes in a cluster.
+
+        Body (optional): {archive_logs: bool = true}
+
+        Returns:
+            200 — TeardownResult (even if some nodes failed to stop)
+            404 — cluster not found
+        """
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        archive = body.get("archive_logs", True) if isinstance(body, dict) else True
+        cluster = await cluster_orchestrator.get_cluster(cluster_id)
+        if cluster is None:
+            return JSONResponse({"error": "CLUSTER_NOT_FOUND", "cluster_id": cluster_id}, status_code=404)
+        result = await cluster_orchestrator.teardown_cluster(cluster_id=cluster_id, archive_logs=bool(archive))
+        return JSONResponse(result.model_dump(), status_code=200)
+
+    # =======================================================================
+    # v6.0 Phase 5 — GATEWAY CONNECT + SHUTDOWN ENDPOINTS
+    # =======================================================================
+
+    @app.post("/gateways/connect")
+    async def gateway_connect_endpoint(req: GatewayConnectRequest) -> JSONResponse:
+        """Runtime gateway join — connect this worker to an additional gateway.
+
+        This enables a running worker node to join a second cluster's gateway
+        without restarting. Requires this node to be configured as a worker.
+
+        Returns:
+            200 — GatewayConnectResponse
+            503 — not a worker node (no WorkerAgent)
+            502 — connection failed
+        """
+        agent = worker_agent_ref.get("agent")
+        if agent is None:
+            return JSONResponse(
+                {
+                    "error": "NOT_A_WORKER",
+                    "detail": (
+                        "This node does not have a WorkerAgent (not configured as a worker). "
+                        "Only worker nodes can join additional gateways at runtime."
+                    ),
+                },
+                status_code=503,
+            )
+        try:
+            gw_node_id = await agent.connect_to_gateway(
+                gateway_address=req.address,
+                auth_token=req.auth_token,
+            )
+            if req.node_id_override:
+                gw_node_id = req.node_id_override
+            return JSONResponse(
+                GatewayConnectResponse(
+                    address=req.address,
+                    gateway_node_id=gw_node_id,
+                    connected=True,
+                    message=f"Connected to gateway {gw_node_id} at {req.address}",
+                ).model_dump(),
+                status_code=200,
+            )
+        except Exception as exc:
+            logger.error("Runtime gateway connect failed for %s: %s", req.address, exc)
+            return JSONResponse(
+                {"error": "GATEWAY_CONNECT_FAILED", "detail": str(exc), "address": req.address},
+                status_code=502,
+            )
+
+    @app.post("/shutdown")
+    async def shutdown_endpoint(request: Request) -> JSONResponse:
+        """Graceful node shutdown — used by ClusterOrchestrator during teardown.
+
+        Stops background tasks and exits the process after a brief delay.
+        Sends 200 before exiting so the caller records the response.
+
+        Body (optional): {reason: str}
+
+        Returns:
+            200 — shutdown initiated
+        """
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        reason = body.get("reason", "shutdown_requested") if isinstance(body, dict) else "shutdown_requested"
+        logger.info("POST /shutdown received — reason=%s", reason)
+
+        async def _do_shutdown() -> None:
+            import sys
+            await asyncio.sleep(0.5)   # Let response finish sending
+            agent = worker_agent_ref.get("agent")
+            if agent is not None:
+                try:
+                    await agent.stop()
+                except Exception as exc:
+                    logger.warning("WorkerAgent stop error during shutdown: %s", exc)
+            logger.info("Node %s exiting (reason=%s)", config.node_id, reason)
+            sys.exit(0)
+
+        asyncio.create_task(_do_shutdown())
+        return JSONResponse(
+            {
+                "node_id": config.node_id,
+                "shutdown": True,
+                "reason": reason,
+                "message": "Shutdown initiated — node will exit in ~500ms",
+            },
+            status_code=200,
+        )
 
     return app

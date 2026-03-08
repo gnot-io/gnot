@@ -310,6 +310,11 @@ class NodeConfig:
     task_pool: "TaskPoolConfig" = field(default_factory=lambda: TaskPoolConfig())
     checkpoint_store: "CheckpointStoreConfig" = field(default_factory=lambda: CheckpointStoreConfig())
 
+    # v6.0 Phase 5 — Cluster Orchestrator
+    cluster_orchestrator: "ClusterOrchestratorConfig" = field(
+        default_factory=lambda: ClusterOrchestratorConfig()
+    )
+
     # Derived helpers -------------------------------------------------------
 
     @property
@@ -444,7 +449,8 @@ def load_config(config_path: str | Path) -> NodeConfig:
                              "registration_policy", "poll_interval_max_seconds",
                              "poll_backoff_multiplier",
                              "session", "memory", "mcp_servers",
-                             "task_pool", "checkpoint_store")},
+                             "task_pool", "checkpoint_store",
+                             "cluster_orchestrator")},
         event_bus=_eb_config,
         scheduler=_sched_config,
         schedule=_static_schedule,
@@ -459,6 +465,8 @@ def load_config(config_path: str | Path) -> NodeConfig:
         # v6.0 Phase 4
         task_pool=_parse_task_pool_config(raw),
         checkpoint_store=_parse_checkpoint_store_config(raw),
+        # v6.0 Phase 5
+        cluster_orchestrator=_parse_cluster_orchestrator_config(raw),
     )
 
     logger.info(
@@ -529,4 +537,36 @@ def _parse_checkpoint_store_config(raw: dict) -> "CheckpointStoreConfig":
         sweep_interval_seconds=int(
             c.get("sweep_interval_seconds", DEFAULT_CHECKPOINT_SWEEP_INTERVAL)
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 5 — Cluster Orchestrator config
+# ---------------------------------------------------------------------------
+
+DEFAULT_PORT_RANGE_START: int = 8090
+DEFAULT_PORT_RANGE_END: int = 8200
+DEFAULT_BLUEPRINTS_DIR: str = "./blueprints"
+DEFAULT_CLUSTERS_STATE_PATH: str = "./clusters.json"
+
+
+@dataclass(frozen=True)
+class ClusterOrchestratorConfig:
+    """Configuration for the ClusterOrchestrator (Phase 5)."""
+    enabled: bool = True
+    port_range_start: int = DEFAULT_PORT_RANGE_START
+    port_range_end: int = DEFAULT_PORT_RANGE_END
+    blueprints_dir: str = DEFAULT_BLUEPRINTS_DIR
+    state_path: str = DEFAULT_CLUSTERS_STATE_PATH
+
+
+def _parse_cluster_orchestrator_config(raw: dict) -> "ClusterOrchestratorConfig":
+    """Parse the 'cluster_orchestrator:' section from node.yaml (Phase 5)."""
+    c = raw.get("cluster_orchestrator", {}) or {}
+    return ClusterOrchestratorConfig(
+        enabled=c.get("enabled", True),
+        port_range_start=int(c.get("port_range_start", DEFAULT_PORT_RANGE_START)),
+        port_range_end=int(c.get("port_range_end", DEFAULT_PORT_RANGE_END)),
+        blueprints_dir=c.get("blueprints_dir", DEFAULT_BLUEPRINTS_DIR),
+        state_path=c.get("state_path", DEFAULT_CLUSTERS_STATE_PATH),
     )

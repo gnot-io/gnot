@@ -1,0 +1,60 @@
+# Minimal Cluster — lean 4-role team
+# Stripped-down cluster for smaller tasks or resource-constrained environments.
+# PM handles both orchestration and basic review.
+# Developer handles both implementation and unit testing.
+
+name: Minimal Cluster
+description: Lean 4-role team — PM, Analyst, Developer, Tester (no dedicated Architect/Reviewer)
+tags:
+  - minimal
+  - lean
+  - small-team
+
+cluster_defaults:
+  session_backend: persistent
+  memory_enabled: true
+  task_pool_enabled: true
+  checkpoint_store_enabled: true
+  event_bus_enabled: true
+  scheduler_enabled: true
+  poll_interval_seconds: 5
+  poll_interval_max_seconds: 60
+  poll_backoff_multiplier: 1.5
+
+roles:
+  - id: pm
+    blueprint: pm
+    description: Project Manager — orchestrates + does light architecture review
+    is_gateway: false
+    event_subscriptions:
+      - event_type_pattern: "task.completed"
+        callback_action: "handle_task_completed"
+        description: "PM receives task completion notifications"
+      - event_type_pattern: "cluster.started"
+        callback_action: "handle_cluster_started"
+        description: "PM kicks off workflow on cluster start"
+      - event_type_pattern: "test.passed"
+        callback_action: "handle_test_result"
+        description: "PM tracks test results"
+      - event_type_pattern: "test.failed"
+        callback_action: "handle_test_result"
+        description: "PM tracks test failures"
+
+  - id: analyst
+    blueprint: analyst
+    description: Requirements Analyst — also handles architecture sketches
+    is_gateway: false
+
+  - id: developer
+    blueprint: developer
+    description: Software Developer — implementation + unit tests + self-review
+    is_gateway: false
+
+  - id: tester
+    blueprint: tester
+    description: QA Engineer — integration and e2e testing
+    is_gateway: false
+
+# When to use minimal vs standard:
+# - minimal: prototypes, small features, ≤1 week tasks, cost-sensitive runs
+# - standard: production features, multi-module systems, quality-sensitive delivery
