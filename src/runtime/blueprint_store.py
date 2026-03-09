@@ -1,4 +1,4 @@
-"""BlueprintStore — manages role and team blueprints for cluster provisioning.
+"""BlueprintStore — manages role and cluster blueprints for cluster provisioning.
 
 Blueprints live in a directory tree:
     blueprints/
@@ -10,7 +10,7 @@ Blueprints live in a directory tree:
     │   ├── developer.md
     │   ├── tester.md
     │   └── reviewer.md
-    ├── teams/
+    ├── clusters/
     │   ├── standard-cluster.yaml
     │   └── minimal-cluster.yaml
     └── generated/          # LLM-generated blueprints saved for reuse
@@ -30,7 +30,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Supported blueprint types
-BLUEPRINT_TYPES = {"role", "team", "generated"}
+BLUEPRINT_TYPES = {"role", "cluster", "generated"}
 
 
 class BlueprintNotFoundError(Exception):
@@ -38,7 +38,7 @@ class BlueprintNotFoundError(Exception):
 
 
 class BlueprintStore:
-    """Manages role and team blueprints on disk.
+    """Manages role and cluster blueprints on disk.
 
     Blueprints are stored in a directory tree. INDEX.yaml is the catalog.
     Files are loaded lazily — only read from disk on demand.
@@ -81,7 +81,7 @@ class BlueprintStore:
     ) -> list[dict[str, Any]]:
         """Return blueprint metadata from the index.
 
-        Optionally filter by type ("role" | "team" | "generated") or tags.
+        Optionally filter by type ("role" | "cluster" | "generated") or tags.
         """
         if not self._index_loaded:
             await self.startup_load()
@@ -101,11 +101,11 @@ class BlueprintStore:
         """Load and return the raw content of a blueprint.
 
         Args:
-            blueprint_type: "role" | "team" | "generated"
+            blueprint_type: "role" | "cluster" | "generated"
             blueprint_id:   e.g. "pm", "standard-cluster", "my-custom-blueprint"
 
         Returns:
-            Raw file content (Markdown for roles, YAML for teams).
+            Raw file content (Markdown for roles, YAML for clusters).
 
         Raises:
             BlueprintNotFoundError if the file doesn't exist.
@@ -121,7 +121,7 @@ class BlueprintStore:
         # The correct subdir naming:
         subdir_map = {
             "role": "roles",
-            "team": "teams",
+            "cluster": "clusters",
             "generated": "generated",
         }
         subdir = subdir_map[blueprint_type]
@@ -145,9 +145,9 @@ class BlueprintStore:
         """Convenience: load a role blueprint by role name."""
         return await self.get_blueprint("role", role)
 
-    async def get_team_blueprint(self, team_id: str) -> dict[str, Any]:
-        """Convenience: load and parse a team YAML blueprint."""
-        content = await self.get_blueprint("team", team_id)
+    async def get_cluster_blueprint(self, cluster_id: str) -> dict[str, Any]:
+        """Convenience: load and parse a cluster YAML blueprint."""
+        content = await self.get_blueprint("cluster", cluster_id)
         return yaml.safe_load(content) or {}
 
     async def save_blueprint(
@@ -163,7 +163,7 @@ class BlueprintStore:
         """
         subdir_map = {
             "role": "roles",
-            "team": "teams",
+            "cluster": "clusters",
             "generated": "generated",
         }
         subdir = subdir_map.get(blueprint_type, "generated")

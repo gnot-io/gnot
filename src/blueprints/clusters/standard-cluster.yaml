@@ -1,12 +1,12 @@
-# Standard Cluster — 6-role team composition
+# Standard Cluster — 6-role cluster composition
 # This blueprint defines a full-featured GNOT cluster with all specialist roles.
 # Use this for complex projects requiring analysis, architecture, development, testing, and review.
 
 name: Standard Cluster
-description: Full 6-role team — PM, Analyst, Architect, Developer, Tester, Reviewer
+description: Full 6-role cluster — PM, Analyst, Architect, Developer, Tester, Reviewer
 tags:
   - standard
-  - full-team
+  - full-cluster
   - production
 
 cluster_defaults:
@@ -83,7 +83,7 @@ roles:
 # {
 #   "cluster_id": "my-project",
 #   "cluster_name": "My Project Team",
-#   "team_blueprint": "standard-cluster",
+#   "cluster_blueprint": "standard-cluster",
 #   "llm_api_key": "${ANTHROPIC_API_KEY}",
 #   "kickoff_on_provision": true,
 #   "kickoff_prompt": "Build a REST API for user management"

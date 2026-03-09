@@ -45,10 +45,10 @@ def tmp_blueprints_dir(tmp_path: Path) -> Path:
     """Create a temporary blueprints directory with minimal content."""
     bp_dir = tmp_path / "blueprints"
     roles_dir = bp_dir / "roles"
-    teams_dir = bp_dir / "teams"
+    clusters_dir = bp_dir / "clusters"
     generated_dir = bp_dir / "generated"
     roles_dir.mkdir(parents=True)
-    teams_dir.mkdir(parents=True)
+    clusters_dir.mkdir(parents=True)
     generated_dir.mkdir(parents=True)
 
     # Write INDEX.yaml
@@ -73,11 +73,11 @@ def tmp_blueprints_dir(tmp_path: Path) -> Path:
                 },
                 {
                     "id": "standard-cluster",
-                    "type": "team",
+                    "type": "cluster",
                     "name": "Standard Cluster",
-                    "description": "6-role team",
-                    "tags": ["team", "standard"],
-                    "path": "teams/standard-cluster.yaml",
+                    "description": "6-role cluster",
+                    "tags": ["cluster", "standard"],
+                    "path": "clusters/standard-cluster.yaml",
                 },
             ]
         }),
@@ -88,8 +88,8 @@ def tmp_blueprints_dir(tmp_path: Path) -> Path:
     (roles_dir / "pm.md").write_text("# Role: PM\n\nYou are the PM.", encoding="utf-8")
     (roles_dir / "developer.md").write_text("# Role: Developer\n\nYou are a developer.", encoding="utf-8")
 
-    # Write team file
-    (teams_dir / "standard-cluster.yaml").write_text(
+    # Write cluster file
+    (clusters_dir / "standard-cluster.yaml").write_text(
         yaml.dump({"name": "Standard Cluster", "roles": ["pm", "developer"]}),
         encoding="utf-8",
     )
@@ -126,7 +126,7 @@ class TestBlueprintStore:
     @pytest.mark.asyncio
     async def test_list_blueprints_filter_by_tag(self, blueprint_store: BlueprintStore):
         await blueprint_store.startup_load()
-        teams = await blueprint_store.list_blueprints(tags=["team"])
+        teams = await blueprint_store.list_blueprints(tags=["cluster"])
         assert len(teams) == 1
         assert teams[0]["id"] == "standard-cluster"
 
@@ -137,8 +137,8 @@ class TestBlueprintStore:
         assert "PM" in content
 
     @pytest.mark.asyncio
-    async def test_get_blueprint_team(self, blueprint_store: BlueprintStore):
-        content = await blueprint_store.get_blueprint("team", "standard-cluster")
+    async def test_get_blueprint_cluster(self, blueprint_store: BlueprintStore):
+        content = await blueprint_store.get_blueprint("cluster", "standard-cluster")
         assert "Standard Cluster" in content
 
     @pytest.mark.asyncio

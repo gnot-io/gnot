@@ -1,14 +1,14 @@
-# Minimal Cluster — lean 4-role team
+# Minimal Cluster — lean 4-role cluster
 # Stripped-down cluster for smaller tasks or resource-constrained environments.
 # PM handles both orchestration and basic review.
 # Developer handles both implementation and unit testing.
 
 name: Minimal Cluster
-description: Lean 4-role team — PM, Analyst, Developer, Tester (no dedicated Architect/Reviewer)
+description: Lean 4-role cluster — PM, Analyst, Developer, Tester (no dedicated Architect/Reviewer)
 tags:
   - minimal
   - lean
-  - small-team
+  - small-cluster
 
 cluster_defaults:
   session_backend: persistent

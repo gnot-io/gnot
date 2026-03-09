@@ -77,7 +77,7 @@ DEFAULT_POLL_BACKOFF_MULTIPLIER: float = 1.5
 # v6.0 Phase 2 defaults — Registration policy
 # NOTE: "open" matches historical v5.x behavior (any authenticated node accepted).
 # Set to "whitelist" in node.yaml for stricter environments.
-DEFAULT_REGISTRATION_POLICY: str = "open"  # open | whitelist | invite_only
+DEFAULT_REGISTRATION_POLICY: str = "whitelist"  # open | whitelist | invite_only
 
 # v6.0 Phase 3 defaults — Session backend
 DEFAULT_SESSION_BACKEND: str = "memory"    # "memory" | "persistent"
@@ -371,8 +371,13 @@ class NodeConfig:
 
     @property
     def is_gateway(self) -> bool:
-        """True if this node acts as a gateway (has a trusted_nodes list)."""
-        return bool(self.trusted_nodes)
+        """True if this node acts as a gateway.
+
+        A node is a gateway if it has a pre-configured trusted_nodes list
+        (whitelist / invite_only policy), or if it explicitly runs with the
+        open registration policy (auto-accepts any authenticated node).
+        """
+        return bool(self.trusted_nodes) or self.registration_policy == "open"
 
     @property
     def upload_max_size_bytes(self) -> int:

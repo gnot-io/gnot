@@ -426,6 +426,7 @@ class ScheduleEntry(BaseModel):
 
     # event trigger
     on_event_type: str | None = None
+    on_channel: str = "global"                         # channel scope for event trigger
     on_payload_filter: dict[str, Any] | None = None
 
     # once trigger
@@ -624,7 +625,7 @@ class TeardownResult(BaseModel):
 class BlueprintInfo(BaseModel):
     """Metadata entry for one blueprint in the catalog."""
     id: str
-    type: str               # "role" | "team"
+    type: str               # "role" | "cluster"
     name: str = ""
     description: str = ""
     tags: list[str] = Field(default_factory=list)

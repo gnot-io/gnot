@@ -62,22 +62,22 @@ blueprints:
   # ── Team blueprints ────────────────────────────────────────────────────
 
   - id: standard-cluster
-    type: team
+    type: cluster
     name: Standard Cluster
     description: >
-      Full 6-role team: PM, Analyst, Architect, Developer, Tester, Reviewer.
+      Full 6-role cluster: PM, Analyst, Architect, Developer, Tester, Reviewer.
       Suitable for production features and complex multi-module systems.
-    tags: [team, standard, full-team, production]
-    path: teams/standard-cluster.yaml
+    tags: [cluster, standard, full-cluster, production]
+    path: clusters/standard-cluster.yaml
 
   - id: minimal-cluster
-    type: team
+    type: cluster
     name: Minimal Cluster
     description: >
-      Lean 4-role team: PM, Analyst, Developer, Tester.
+      Lean 4-role cluster: PM, Analyst, Developer, Tester.
       Suitable for prototypes, small features, and cost-sensitive runs.
-    tags: [team, minimal, lean, small-team]
-    path: teams/minimal-cluster.yaml
+    tags: [cluster, minimal, lean, small-cluster]
+    path: clusters/minimal-cluster.yaml
 
   - id: external-adapter
     type: role

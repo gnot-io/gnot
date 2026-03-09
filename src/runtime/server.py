@@ -1579,7 +1579,7 @@ def create_app(
 
     @app.get("/blueprints")
     async def list_blueprints_endpoint(
-        blueprint_type: str | None = Query(default=None, description="Filter: role | team | generated"),
+        blueprint_type: str | None = Query(default=None, description="Filter: role | cluster | generated"),
         tag: str | None = Query(default=None, description="Filter by tag"),
     ) -> JSONResponse:
         """List all available blueprints from the catalog.
@@ -1610,7 +1610,7 @@ def create_app(
         """Retrieve the raw content of a blueprint.
 
         Returns:
-            200 — blueprint content (text/markdown for roles, text/yaml for teams)
+            200 — blueprint content (text/markdown for roles, text/yaml for clusters)
             404 — blueprint not found
         """
         from runtime.blueprint_store import BlueprintNotFoundError as _BNF
