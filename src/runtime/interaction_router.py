@@ -1,6 +1,7 @@
 """InteractionRouter — role-based routing for external participant interactions.
 
 v6.0 Phase 6 — External Participant Interaction.
+v6.0 Phase 7 — Multi-Channel Transport (bridge registry delegation).
 
 When an agent calls suspend_and_ask with a target_role, the runtime emits a
 participant.input_required event.  The InteractionRouter picks up this event,
@@ -13,10 +14,11 @@ Routing semantics (from spec §9.2):
   - Others may still add comments or tags.
   - No availability check — pure role match.
 
-Transport support:
+Transport support (v6.0 Phase 7 updated):
   - webhook:  POST to transport_target with question payload (async HTTP).
   - polling:  Nothing extra — participants poll GET /channels/{id}/pending.
-  - session:  Future (Phase 7+ SSE push).  Currently treated as polling.
+  - session:  Treated as polling for now (future SSE push).
+  - telegram/slack/discord/...: Delegated to TransportBridgeRegistry.
 """
 
 from __future__ import annotations
@@ -47,11 +49,13 @@ class InteractionRouter:
         channel_log: Any,            # ChannelLog
         event_bus: Any | None = None,
         node_id: str = "unknown",
+        bridge_registry: Any | None = None,  # TransportBridgeRegistry (Phase 7)
     ) -> None:
         self._registry = participant_registry
         self._channel_log = channel_log
         self._event_bus = event_bus
         self._node_id = node_id
+        self._bridge_registry = bridge_registry  # v6.0 Phase 7
 
     # ── public API ─────────────────────────────────────────────────────────
 
@@ -151,21 +155,49 @@ class InteractionRouter:
         participant: ExternalParticipant,
         thread: InteractionThread,
     ) -> None:
-        """Notify a participant based on their transport preference."""
-        if participant.transport == "webhook" and participant.transport_target:
-            await self._notify_webhook(participant, thread)
-        elif participant.transport in ("polling", "session"):
-            # Polling: participant will discover the thread via GET /channels/{id}/pending
-            # Session: future SSE push (Phase 7) — polling fallback for now
+        """Notify a participant based on their transport preference.
+
+        v6.0 Phase 7: unknown transports are delegated to TransportBridgeRegistry.
+        """
+        if participant.transport == "polling":
+            # Polling: participant discovers via GET /channels/{id}/pending — no push
             logger.debug(
                 "InteractionRouter: participant %s is polling — no push needed",
                 participant.participant_id,
             )
-        else:
+            return
+
+        if participant.transport == "session":
+            # Future SSE push — polling fallback for now
             logger.debug(
-                "InteractionRouter: unrecognised transport=%s for participant=%s",
-                participant.transport, participant.participant_id,
+                "InteractionRouter: participant %s uses session transport — polling fallback",
+                participant.participant_id,
             )
+            return
+
+        if participant.transport == "webhook" and participant.transport_target:
+            await self._notify_webhook(participant, thread)
+            return
+
+        # v6.0 Phase 7: delegate to bridge registry for channel transports
+        if self._bridge_registry is not None:
+            bridge = self._bridge_registry.get(participant.transport)
+            if bridge is not None and bridge.is_ready:
+                await bridge.notify(participant, thread)
+                return
+            elif bridge is not None:
+                logger.warning(
+                    "InteractionRouter: bridge transport=%s exists but is not ready — "
+                    "participant=%s will miss notification",
+                    participant.transport, participant.participant_id,
+                )
+                return
+
+        logger.warning(
+            "InteractionRouter: no bridge registered for transport=%s participant=%s — "
+            "notification dropped",
+            participant.transport, participant.participant_id,
+        )
 
     async def _notify_webhook(
         self,

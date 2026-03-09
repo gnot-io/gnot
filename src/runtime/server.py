@@ -120,6 +120,7 @@ from runtime.cluster_orchestrator import ClusterOrchestrator
 from runtime.external_participant_registry import ExternalParticipantRegistry, ParticipantNotFoundError, ParticipantAuthError
 from runtime.channel_log import ChannelLog, ThreadNotFoundError, ThreadAlreadyAnsweredError
 from runtime.interaction_router import InteractionRouter
+from runtime.transport_bridge import TransportBridgeRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,10 @@ def create_app(
         path=config.channel_log_dir,
         node_id=config.node_id,
     )
+    # v6.0 Phase 7: TransportBridgeRegistry — auto-discover enabled bridges from config
+    bridge_registry = TransportBridgeRegistry()
+    _setup_transport_bridges(config, bridge_registry)
+
     # InteractionRouter needs event_bus, which is created later; we wire it post-construction.
     # Start with event_bus=None; wire below after event_bus is available.
     interaction_router = InteractionRouter(
@@ -216,6 +221,7 @@ def create_app(
         channel_log=channel_log,
         event_bus=None,   # wired after event_bus is created
         node_id=config.node_id,
+        bridge_registry=bridge_registry,  # v6.0 Phase 7
     )
 
     # -- ActionExecutor (after memory_store is ready) -----------------------
@@ -412,6 +418,27 @@ def create_app(
         # v6.0 Phase 6 — load participant registry + channel log
         _participant_count = await participant_registry.startup_load()
         _channel_threads = await channel_log.startup_load()
+        # v6.0 Phase 7 — start transport bridges
+        _bridge_count = 0
+        for bridge in bridge_registry.all():
+            try:
+                await bridge.startup()
+                _bridge_count += 1
+                # Mount bridge FastAPI router if provided
+                bridge_router = bridge.get_fastapi_router()
+                if bridge_router is not None:
+                    app.include_router(
+                        bridge_router,
+                        prefix=f"/transports/{bridge.transport_id}",
+                    )
+                    logger.info(
+                        "Mounted transport router /transports/%s", bridge.transport_id
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Failed to start transport bridge %s: %s",
+                    bridge.transport_id, exc,
+                )
         logger.info(
             "v6.0 startup — job cleanup active, trusted_nodes=%s, "
             "swept %d orphaned upload(s), %d stale session(s), "
@@ -446,6 +473,12 @@ def create_app(
             await checkpoint_store.stop_sweep_task()
         # v5.13 — final credential flush before exit
         await credential_store.stop_flush_task()
+        # v6.0 Phase 7 — shutdown transport bridges
+        for bridge in bridge_registry.all():
+            try:
+                await bridge.shutdown()
+            except Exception as exc:
+                logger.error("Error shutting down bridge %s: %s", bridge.transport_id, exc)
         logger.info("Shutdown complete")
 
     app = FastAPI(
@@ -472,6 +505,7 @@ def create_app(
     app.state.participant_registry = participant_registry  # v6.0 Phase 6
     app.state.channel_log = channel_log                    # v6.0 Phase 6
     app.state.interaction_router = interaction_router      # v6.0 Phase 6
+    app.state.bridge_registry = bridge_registry              # v6.0 Phase 7
 
     # -- Auth (v5.13: supports single auth_token or allowed_tokens list) ------
     _allowed = list(config.allowed_tokens) if config.allowed_tokens else None
@@ -2016,3 +2050,31 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 7 — Transport bridge auto-discovery helper
+# ---------------------------------------------------------------------------
+
+def _setup_transport_bridges(
+    config: "NodeConfig",
+    registry: "TransportBridgeRegistry",
+) -> None:
+    """Auto-discover and register enabled transport bridges from config.
+
+    Only bridges explicitly enabled in node.yaml transports: section are loaded.
+    This function must not import from transports/ at module level — imports are
+    lazy inside the if-blocks so that nodes without Telegram deps still boot.
+    """
+    if config.telegram.enabled:
+        try:
+            from transports.telegram.bridge import TelegramBridge  # type: ignore
+            bridge = TelegramBridge(config=config)
+            registry.register(bridge)
+            logger.info("TelegramBridge registered — bots_storage=%s", config.telegram.bots_storage_path)
+        except ImportError as exc:
+            logger.warning(
+                "Telegram bridge configured but transports.telegram not available: %s", exc
+            )
+        except Exception as exc:
+            logger.error("Failed to initialize TelegramBridge: %s", exc)

@@ -215,6 +215,34 @@ class EventBusConfig:
     persistence_path: str | None = None     # if set, persist events to JSONL file
 
 
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 7 — Transport bridge defaults + config
+# ---------------------------------------------------------------------------
+
+DEFAULT_TELEGRAM_ENABLED: bool = False
+DEFAULT_TELEGRAM_BOTS_STORAGE_PATH: str = "./telegram-bots"
+DEFAULT_TELEGRAM_POLL_INTERVAL_SECONDS: int = 1
+DEFAULT_TELEGRAM_POLL_TIMEOUT_SECONDS: int = 30
+DEFAULT_TELEGRAM_API_TIMEOUT_SECONDS: int = 10
+DEFAULT_TELEGRAM_MESSAGE_FORMAT: str = "full"
+DEFAULT_TELEGRAM_LANGUAGE: str = "vi"
+
+
+@dataclass(frozen=True)
+class TelegramTransportConfig:
+    """Configuration for the Telegram transport bridge (Phase 7)."""
+    enabled: bool = DEFAULT_TELEGRAM_ENABLED
+    gnot_base_url: str | None = None          # if None, auto-detect from listen:
+    token_encryption_key: str | None = None   # if None, use auth_token
+    bots_storage_path: str = DEFAULT_TELEGRAM_BOTS_STORAGE_PATH
+    default_message_format: str = DEFAULT_TELEGRAM_MESSAGE_FORMAT
+    default_language: str = DEFAULT_TELEGRAM_LANGUAGE
+    poll_interval_seconds: int = DEFAULT_TELEGRAM_POLL_INTERVAL_SECONDS
+    poll_timeout_seconds: int = DEFAULT_TELEGRAM_POLL_TIMEOUT_SECONDS
+    api_timeout_seconds: int = DEFAULT_TELEGRAM_API_TIMEOUT_SECONDS
+
 # ---------------------------------------------------------------------------
 # NodeConfig dataclass
 # ---------------------------------------------------------------------------
@@ -318,6 +346,9 @@ class NodeConfig:
     # v6.0 Phase 6 — External Participant Interaction
     participants_dir: str = "/tmp/gnot-participants"
     channel_log_dir: str = "/tmp/gnot-channels"
+
+    # v6.0 Phase 7 — Transport bridges
+    telegram: "TelegramTransportConfig" = field(default_factory=lambda: TelegramTransportConfig())
 
     # Derived helpers -------------------------------------------------------
 
@@ -454,7 +485,7 @@ def load_config(config_path: str | Path) -> NodeConfig:
                              "poll_backoff_multiplier",
                              "session", "memory", "mcp_servers",
                              "task_pool", "checkpoint_store",
-                             "cluster_orchestrator")},
+                             "cluster_orchestrator", "telegram")},
         event_bus=_eb_config,
         scheduler=_sched_config,
         schedule=_static_schedule,
@@ -471,6 +502,8 @@ def load_config(config_path: str | Path) -> NodeConfig:
         checkpoint_store=_parse_checkpoint_store_config(raw),
         # v6.0 Phase 5
         cluster_orchestrator=_parse_cluster_orchestrator_config(raw),
+        # v6.0 Phase 7
+        telegram=_parse_telegram_config(raw),
     )
 
     logger.info(
@@ -573,4 +606,25 @@ def _parse_cluster_orchestrator_config(raw: dict) -> "ClusterOrchestratorConfig"
         port_range_end=int(c.get("port_range_end", DEFAULT_PORT_RANGE_END)),
         blueprints_dir=c.get("blueprints_dir", DEFAULT_BLUEPRINTS_DIR),
         state_path=c.get("state_path", DEFAULT_CLUSTERS_STATE_PATH),
+    )
+
+
+# ---------------------------------------------------------------------------
+# v6.0 Phase 7 — Telegram transport config parser
+# ---------------------------------------------------------------------------
+
+def _parse_telegram_config(raw: dict) -> "TelegramTransportConfig":
+    """Parse the 'transports.telegram:' section from node.yaml."""
+    transports = raw.get("transports", {}) or {}
+    t = transports.get("telegram", {}) or {}
+    return TelegramTransportConfig(
+        enabled=t.get("enabled", DEFAULT_TELEGRAM_ENABLED),
+        gnot_base_url=t.get("gnot_base_url"),
+        token_encryption_key=t.get("token_encryption_key"),
+        bots_storage_path=t.get("bots_storage_path", DEFAULT_TELEGRAM_BOTS_STORAGE_PATH),
+        default_message_format=t.get("default_message_format", DEFAULT_TELEGRAM_MESSAGE_FORMAT),
+        default_language=t.get("default_language", DEFAULT_TELEGRAM_LANGUAGE),
+        poll_interval_seconds=int(t.get("poll_interval_seconds", DEFAULT_TELEGRAM_POLL_INTERVAL_SECONDS)),
+        poll_timeout_seconds=int(t.get("poll_timeout_seconds", DEFAULT_TELEGRAM_POLL_TIMEOUT_SECONDS)),
+        api_timeout_seconds=int(t.get("api_timeout_seconds", DEFAULT_TELEGRAM_API_TIMEOUT_SECONDS)),
     )
